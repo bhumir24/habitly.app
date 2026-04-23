@@ -1,0 +1,97 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { habitSchema, habitLogSchema, type HabitInput } from "@/lib/validations";
+import type { Adaptation } from "@/types";
+import { todayISO } from "@/lib/date";
+
+export async function logHabit(input: {
+  habit_id: string;
+  status: "completed" | "skipped" | "modified";
+  mood?: number | null;
+  blocker_note?: string | null;
+  completion_date?: string;
+}) {
+  const parsed = habitLogSchema.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Invalid input" };
+
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  const supabase = createClient();
+  const date = parsed.data.completion_date ?? todayISO();
+
+  const { error } = await supabase.from("habit_logs").upsert(
+    {
+      habit_id: parsed.data.habit_id,
+      user_id: user.id,
+      status: parsed.data.status,
+      completion_date: date,
+      mood: parsed.data.mood ?? null,
+      blocker_note: parsed.data.blocker_note ?? null,
+    },
+    { onConflict: "habit_id,completion_date" }
+  );
+  if (error) return { ok: false as const, error: error.message };
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/habit/${parsed.data.habit_id}`);
+  return { ok: true as const };
+}
+
+export async function updateHabit(id: string, patch: Partial<HabitInput> & { is_active?: boolean }) {
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  // Validate whatever fields were provided.
+  const partial = habitSchema.partial().safeParse(patch);
+  if (!partial.success) return { ok: false as const, error: "Invalid patch" };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("habits")
+    .update({ ...partial.data, ...(patch.is_active !== undefined ? { is_active: patch.is_active } : {}) })
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) return { ok: false as const, error: error.message };
+  revalidatePath("/dashboard");
+  revalidatePath(`/habit/${id}`);
+  return { ok: true as const };
+}
+
+export async function createHabit(input: HabitInput) {
+  const parsed = habitSchema.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Invalid habit" };
+
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("habits")
+    .insert({ ...parsed.data, user_id: user.id, source: "user" })
+    .select("id")
+    .single();
+  if (error) return { ok: false as const, error: error.message };
+
+  revalidatePath("/dashboard");
+  return { ok: true as const, id: data!.id };
+}
+
+export async function applyAdaptation(a: Adaptation) {
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("habits")
+    .update({ ...a.patch, source: "adapted" })
+    .eq("id", a.habit_id)
+    .eq("user_id", user.id);
+  if (error) return { ok: false as const, error: error.message };
+
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}

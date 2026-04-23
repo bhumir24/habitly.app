@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens: rich minimal (cool neutral + single accent) ─── */
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 222 47% 6%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 6%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 6%;
+
+    --primary: 243 55% 52%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 222 47% 6%;
+
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 9% 42%;
+
+    --accent: 220 14% 94%;
+    --accent-foreground: 222 47% 6%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 220 13% 90%;
+    --input: 220 13% 90%;
+    --ring: 243 55% 52%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 243 65% 60%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 217 33% 12%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 12%;
+    --muted-foreground: 215 16% 60%;
+    --accent: 217 33% 14%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62% 48%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 152 45% 48%;
+    --success-foreground: 152 50% 8%;
+    --border: 217 33% 16%;
+    --input: 217 33% 16%;
+    --ring: 243 65% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  }
+}
+
+.grad-soft {
+  background-image:
+    radial-gradient(70% 50% at 50% -10%, hsl(var(--primary) / 0.06), transparent 55%),
+    radial-gradient(50% 40% at 100% 0%, hsl(220 14% 90% / 0.8), transparent 45%);
+}
+
+/* Ultra-subtle depth — marketing shell */
+.mesh-bg {
+  background: radial-gradient(
+    ellipse 120% 80% at 50% -40%,
+    hsl(var(--primary) / 0.085),
+    transparent 55%
+  );
+}
+
+.grid-pattern {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.025) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Fine grain — breaks flat color banding */
+.grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+
+/* Chat preview: minimal frame (no animated rainbow) */
+.ai-frame {
+  box-shadow:
+    0 0 0 1px hsl(var(--foreground) / 0.06),
+    0 24px 48px -24px hsl(var(--foreground) / 0.12);
+}

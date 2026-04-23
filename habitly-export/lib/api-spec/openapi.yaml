@@ -1,0 +1,1060 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Habitly API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: onboarding
+    description: Onboarding operations
+  - name: habits
+    description: Habit management
+  - name: logs
+    description: Habit log operations
+  - name: coach
+    description: AI coach chat
+  - name: insights
+    description: Weekly insights
+  - name: reminders
+    description: Reminder management
+  - name: dashboard
+    description: Dashboard aggregations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthenticated
+
+  /auth/signup:
+    post:
+      operationId: signup
+      tags: [auth]
+      summary: Sign up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupBody"
+      responses:
+        "201":
+          description: Created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid data
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Logged in user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Log out
+      responses:
+        "204":
+          description: Logged out
+
+  /auth/profile:
+    patch:
+      operationId: updateProfile
+      tags: [auth]
+      summary: Update profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileBody"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /onboarding:
+    get:
+      operationId: getOnboarding
+      tags: [onboarding]
+      summary: Get onboarding data for current user
+      responses:
+        "200":
+          description: Onboarding data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Onboarding"
+        "404":
+          description: Not found
+    post:
+      operationId: saveOnboarding
+      tags: [onboarding]
+      summary: Save onboarding responses and generate plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingBody"
+      responses:
+        "201":
+          description: Saved onboarding + generated habits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingResult"
+
+  /habits:
+    get:
+      operationId: listHabits
+      tags: [habits]
+      summary: List habits for current user
+      responses:
+        "200":
+          description: List of habits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Habit"
+    post:
+      operationId: createHabit
+      tags: [habits]
+      summary: Create a habit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHabitBody"
+      responses:
+        "201":
+          description: Created habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+
+  /habits/generate:
+    post:
+      operationId: generateHabits
+      tags: [habits]
+      summary: Regenerate habit plan using AI
+      responses:
+        "200":
+          description: Regenerated habits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Habit"
+
+  /habits/{id}:
+    get:
+      operationId: getHabit
+      tags: [habits]
+      summary: Get a habit by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateHabit
+      tags: [habits]
+      summary: Update a habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHabitBody"
+      responses:
+        "200":
+          description: Updated habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteHabit
+      tags: [habits]
+      summary: Delete a habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /habits/{id}/logs:
+    get:
+      operationId: getHabitLogs
+      tags: [logs]
+      summary: Get logs for a specific habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HabitLog"
+
+  /logs:
+    get:
+      operationId: listLogs
+      tags: [logs]
+      summary: List all habit logs for user
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HabitLog"
+    post:
+      operationId: createLog
+      tags: [logs]
+      summary: Log a habit action (complete/skip/modify)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLogBody"
+      responses:
+        "201":
+          description: Created log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HabitLog"
+
+  /coach/messages:
+    get:
+      operationId: getCoachMessages
+      tags: [coach]
+      summary: Get coach conversation
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CoachMessage"
+    post:
+      operationId: sendCoachMessage
+      tags: [coach]
+      summary: Send a message to the AI coach
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "201":
+          description: Coach reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachMessage"
+
+  /insights:
+    get:
+      operationId: listInsights
+      tags: [insights]
+      summary: List weekly insight reports
+      responses:
+        "200":
+          description: Insights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WeeklyInsight"
+    post:
+      operationId: generateInsight
+      tags: [insights]
+      summary: Generate a weekly insight report
+      responses:
+        "201":
+          description: Generated insight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyInsight"
+
+  /insights/latest:
+    get:
+      operationId: getLatestInsight
+      tags: [insights]
+      summary: Get the most recent insight
+      responses:
+        "200":
+          description: Latest insight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyInsight"
+        "404":
+          description: No insights yet
+
+  /reminders:
+    get:
+      operationId: listReminders
+      tags: [reminders]
+      summary: List reminders
+      responses:
+        "200":
+          description: Reminders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reminder"
+    post:
+      operationId: createReminder
+      tags: [reminders]
+      summary: Create a reminder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReminderBody"
+      responses:
+        "201":
+          description: Created reminder
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reminder"
+
+  /reminders/{id}:
+    patch:
+      operationId: updateReminder
+      tags: [reminders]
+      summary: Update a reminder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReminderBody"
+      responses:
+        "200":
+          description: Updated reminder
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reminder"
+    delete:
+      operationId: deleteReminder
+      tags: [reminders]
+      summary: Delete a reminder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/adaptations:
+    get:
+      operationId: getAdaptations
+      tags: [dashboard]
+      summary: Get suggested habit adaptations
+      responses:
+        "200":
+          description: Adaptations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Adaptation"
+
+  /dashboard/adaptations/{habitId}/apply:
+    post:
+      operationId: applyAdaptation
+      tags: [dashboard]
+      summary: Apply a suggested adaptation to a habit
+      parameters:
+        - name: habitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyAdaptationBody"
+      responses:
+        "200":
+          description: Updated habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        tier:
+          type: string
+          enum: [free, premium]
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - tier
+        - createdAt
+
+    SignupBody:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - name
+        - password
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    UpdateProfileBody:
+      type: object
+      properties:
+        name:
+          type: string
+        tier:
+          type: string
+          enum: [free, premium]
+
+    Onboarding:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        goals:
+          type: array
+          items:
+            type: string
+        dailyMinutes:
+          type: integer
+        wakeTime:
+          type: string
+        sleepTime:
+          type: string
+        workBlock:
+          type: string
+        energyLevel:
+          type: string
+          enum: [low, medium, high]
+        lifeMode:
+          type: string
+          enum: [student, professional, parent, other]
+        blockers:
+          type: array
+          items:
+            type: string
+        notes:
+          type: ["string", "null"]
+        completedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - goals
+        - dailyMinutes
+        - wakeTime
+        - sleepTime
+        - workBlock
+        - energyLevel
+        - lifeMode
+        - blockers
+        - completedAt
+
+    OnboardingBody:
+      type: object
+      properties:
+        goals:
+          type: array
+          items:
+            type: string
+        dailyMinutes:
+          type: integer
+        wakeTime:
+          type: string
+        sleepTime:
+          type: string
+        workBlock:
+          type: string
+        energyLevel:
+          type: string
+          enum: [low, medium, high]
+        lifeMode:
+          type: string
+          enum: [student, professional, parent, other]
+        blockers:
+          type: array
+          items:
+            type: string
+        notes:
+          type: ["string", "null"]
+      required:
+        - goals
+        - dailyMinutes
+        - wakeTime
+        - sleepTime
+        - workBlock
+        - energyLevel
+        - lifeMode
+        - blockers
+
+    OnboardingResult:
+      type: object
+      properties:
+        onboarding:
+          $ref: "#/components/schemas/Onboarding"
+        habits:
+          type: array
+          items:
+            $ref: "#/components/schemas/Habit"
+      required:
+        - onboarding
+        - habits
+
+    Habit:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        title:
+          type: string
+        purpose:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekdays, weekends, custom]
+        durationMinutes:
+          type: integer
+        bestTimeOfDay:
+          type: string
+          enum: [morning, afternoon, evening, anytime]
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        fallbackMicroHabit:
+          type: string
+        isActive:
+          type: boolean
+        currentStreak:
+          type: integer
+        completionRate:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - title
+        - purpose
+        - frequency
+        - durationMinutes
+        - bestTimeOfDay
+        - difficulty
+        - fallbackMicroHabit
+        - isActive
+        - currentStreak
+        - createdAt
+        - updatedAt
+
+    CreateHabitBody:
+      type: object
+      properties:
+        title:
+          type: string
+        purpose:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekdays, weekends, custom]
+        durationMinutes:
+          type: integer
+        bestTimeOfDay:
+          type: string
+          enum: [morning, afternoon, evening, anytime]
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        fallbackMicroHabit:
+          type: string
+      required:
+        - title
+        - purpose
+        - frequency
+        - durationMinutes
+        - bestTimeOfDay
+        - difficulty
+        - fallbackMicroHabit
+
+    UpdateHabitBody:
+      type: object
+      properties:
+        title:
+          type: string
+        purpose:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekdays, weekends, custom]
+        durationMinutes:
+          type: integer
+        bestTimeOfDay:
+          type: string
+          enum: [morning, afternoon, evening, anytime]
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        fallbackMicroHabit:
+          type: string
+        isActive:
+          type: boolean
+
+    HabitLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        habitId:
+          type: integer
+        userId:
+          type: integer
+        status:
+          type: string
+          enum: [completed, skipped, modified]
+        date:
+          type: string
+        mood:
+          type: ["integer", "null"]
+        blockerNote:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - habitId
+        - userId
+        - status
+        - date
+        - createdAt
+
+    CreateLogBody:
+      type: object
+      properties:
+        habitId:
+          type: integer
+        status:
+          type: string
+          enum: [completed, skipped, modified]
+        date:
+          type: string
+        mood:
+          type: ["integer", "null"]
+        blockerNote:
+          type: ["string", "null"]
+      required:
+        - habitId
+        - status
+        - date
+
+    CoachMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        mood:
+          type: ["integer", "null"]
+        blockerNote:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - role
+        - content
+        - createdAt
+
+    SendMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+        mood:
+          type: ["integer", "null"]
+        blockerNote:
+          type: ["string", "null"]
+      required:
+        - content
+
+    WeeklyInsight:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        weekStart:
+          type: string
+        totalCompleted:
+          type: integer
+        totalSkipped:
+          type: integer
+        completionRate:
+          type: number
+        averageMood:
+          type: ["number", "null"]
+        topHabit:
+          type: ["string", "null"]
+        aiSummary:
+          type: string
+        nextStep:
+          type: string
+        chartData:
+          type: object
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - weekStart
+        - totalCompleted
+        - totalSkipped
+        - completionRate
+        - aiSummary
+        - nextStep
+        - chartData
+        - createdAt
+
+    Reminder:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        habitId:
+          type: ["integer", "null"]
+        label:
+          type: string
+        time:
+          type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - label
+        - time
+        - enabled
+        - createdAt
+
+    CreateReminderBody:
+      type: object
+      properties:
+        habitId:
+          type: ["integer", "null"]
+        label:
+          type: string
+        time:
+          type: string
+        enabled:
+          type: boolean
+      required:
+        - label
+        - time
+        - enabled
+
+    UpdateReminderBody:
+      type: object
+      properties:
+        label:
+          type: string
+        time:
+          type: string
+        enabled:
+          type: boolean
+
+    DashboardSummary:
+      type: object
+      properties:
+        todayCompleted:
+          type: integer
+        todayTotal:
+          type: integer
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        weekCompletionRate:
+          type: number
+        activeHabits:
+          type: integer
+        remindersEnabled:
+          type: integer
+        todayHabits:
+          type: array
+          items:
+            $ref: "#/components/schemas/HabitWithTodayStatus"
+      required:
+        - todayCompleted
+        - todayTotal
+        - currentStreak
+        - longestStreak
+        - weekCompletionRate
+        - activeHabits
+        - remindersEnabled
+        - todayHabits
+
+    HabitWithTodayStatus:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        purpose:
+          type: string
+        frequency:
+          type: string
+        durationMinutes:
+          type: integer
+        bestTimeOfDay:
+          type: string
+        difficulty:
+          type: string
+        fallbackMicroHabit:
+          type: string
+        isActive:
+          type: boolean
+        currentStreak:
+          type: integer
+        completionRate:
+          type: ["number", "null"]
+        todayStatus:
+          type: ["string", "null"]
+      required:
+        - id
+        - title
+        - purpose
+        - frequency
+        - durationMinutes
+        - bestTimeOfDay
+        - difficulty
+        - fallbackMicroHabit
+        - isActive
+        - currentStreak
+
+    Adaptation:
+      type: object
+      properties:
+        habitId:
+          type: integer
+        habitTitle:
+          type: string
+        type:
+          type: string
+          enum: [simplify, reduce_frequency, alternate_time, micro_substitute, recovery_day, progress]
+        reason:
+          type: string
+        suggestion:
+          type: string
+        changes:
+          type: object
+      required:
+        - habitId
+        - habitTitle
+        - type
+        - reason
+        - suggestion
+        - changes
+
+    ApplyAdaptationBody:
+      type: object
+      properties:
+        type:
+          type: string
+        changes:
+          type: object
+      required:
+        - type
+        - changes
