@@ -18,6 +18,26 @@ const MOODS = [
   { v: 5, label: "🤩" },
 ];
 
+const STORAGE_KEY = "habitly_coach_messages";
+
+function loadStoredMessages(initialMessages: CoachMessage[]): CoachMessage[] {
+  if (typeof window === "undefined") return initialMessages;
+  const navType = (
+    performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
+  )?.type;
+  if (navType === "reload") {
+    sessionStorage.removeItem(STORAGE_KEY);
+    return initialMessages;
+  }
+  try {
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (stored) return JSON.parse(stored) as CoachMessage[];
+  } catch {
+    // ignore parse errors
+  }
+  return initialMessages;
+}
+
 export function CoachChat({
   initialMessages,
   fullName,
@@ -25,7 +45,9 @@ export function CoachChat({
   initialMessages: CoachMessage[];
   fullName: string | null;
 }) {
-  const [messages, setMessages] = useState<CoachMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<CoachMessage[]>(() =>
+    loadStoredMessages(initialMessages)
+  );
   const [draft, setDraft] = useState("");
   const [mood, setMood] = useState<number | null>(null);
   const [blocker, setBlocker] = useState("");
@@ -36,6 +58,14 @@ export function CoachChat({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isPending]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    } else {
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
+  }, [messages]);
 
   const submit = () => {
     const content = draft.trim();

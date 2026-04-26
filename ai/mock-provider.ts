@@ -138,32 +138,32 @@ export class MockProvider implements AIProvider {
           return s?.rate !== null && s!.rate >= 0.75;
         }) ?? contextHabit;
         return (
-          `Got it. I’ve noted to increase "${readyHabit?.title ?? "that habit"}" by ~30% duration. ` +
-          `Head to the habit page and tap Edit to apply it, or ask me to draft the exact numbers.`
+          `Got it. Go to Dashboard → tap "${readyHabit?.title ?? "the habit"}" → Edit, and increase the duration by ~30%. ` +
+          `Or tell me the habit name and I’ll give you the exact new numbers.`
         );
       }
       if (/drop|micro|simpler|reduce|lighten|fallback/i.test(lastCoachMsg)) {
         return (
           `Done — switching to micro mode for 5 days makes sense. ` +
-          `Open the habit, lower the difficulty, and set duration to ${Math.max(2, Math.round((contextHabit?.duration_minutes ?? 10) / 2))} min. ` +
+          `Dashboard → tap the habit → Edit → lower difficulty and set duration to ${Math.max(2, Math.round((contextHabit?.duration_minutes ?? 10) / 2))} min. ` +
           `Check back in on day 5.`
         );
       }
       if (/shift|time|window|earlier|later/i.test(lastCoachMsg)) {
         return (
-          `Good call. Go to the habit settings and switch the preferred time. ` +
+          `Good call. Dashboard → tap the habit → Edit → change Preferred Time. ` +
           `Even a 1-hour shift can change completion dramatically — give it a week.`
         );
       }
       if (/add|gym|meditat|new habit|generate|create/i.test(lastCoachMsg)) {
         return (
-          `To add a new habit, go to the Dashboard and tap "+ New Habit". ` +
-          `I’d suggest starting it at "easy" difficulty so it doesn’t compete with your existing plan.`
+          `To add a new habit: Dashboard → "+ New Habit" button at the top right. ` +
+          `Start it at "easy" difficulty so it doesn’t compete with your existing plan.`
         );
       }
       return (
-        `Got it. Make the change in the habit settings and log your first attempt — ` +
-        `that’s the only way to know if it sticks. Come back in a few days and we’ll review.`
+        `Got it. To edit a habit: Dashboard → tap the habit card → Edit. ` +
+        `Log your first attempt after the change — that’s the only way to know if it sticks.`
       );
     }
 
@@ -177,7 +177,31 @@ export class MockProvider implements AIProvider {
       );
     }
 
-    // ── 4. Generate / add / create / regenerate plan ───────────────────────
+    // ── 4. Navigation / where is / settings ───────────────────────────────
+    if (/where (is|are|can i|do i)|how (do i|can i) (edit|change|update|find)|habit setting|settings/.test(msg)) {
+      if (/habit|edit|change|update/.test(msg)) {
+        return (
+          `To edit a habit: go to Dashboard → tap the habit card → hit Edit. ` +
+          `You can change the title, time slot, duration, difficulty, and fallback. ` +
+          `To add a new one: Dashboard → "+ New Habit" in the top right.`
+        );
+      }
+      if (/account|profile|password|email|name/.test(msg)) {
+        return `Account settings are in Settings (left sidebar). You can update your name, timezone, energy baseline, and life mode there.`;
+      }
+      if (/plan|schedule|routine/.test(msg)) {
+        return (
+          `Your habit plan lives on the Dashboard. To change a habit: tap its card → Edit. ` +
+          `To rework the whole plan: tell me what's not working and I'll give you a concrete change to make.`
+        );
+      }
+      return (
+        `App pages: Dashboard (habits + logging), AI Coach (here), Insights (trends), Settings (account). ` +
+        `To edit a habit: Dashboard → tap the habit card → Edit.`
+      );
+    }
+
+    // ── 5. Generate / add / create / regenerate plan ───────────────────────
     if (/generate|add.*(habit|gym|meditat|workout)|create.*(habit|plan)|new habit|regenerate|rebuild.*plan/.test(msg)) {
       const wantsMeditation = /meditat/.test(msg);
       const wantsGym = /gym|workout|exercise|strength/.test(msg);
@@ -383,9 +407,10 @@ export class MockProvider implements AIProvider {
     // ── 14. Plan / schedule tweaks ────────────────────────────────────────
     if (/plan|schedule|routine|change|adjust|tweak|restructure|overhaul/.test(msg)) {
       const heavyHabits = habits.filter((h) => h.duration_minutes > 20);
+      const editNote = `To make changes: Dashboard → tap a habit card → Edit.`;
       return heavyHabits.length > 3
-        ? `Your plan is dense — ${habits.length} habits, ${heavyHabits.length} over 20 min. For ${lifeMode} mode I’d cut to the 2 non-negotiable ones. Which are they?`
-        : `${habits.length} active habits is reasonable for ${lifeMode} mode. Tell me the specific change: add a habit, shift a time, lower a duration, or drop one entirely?`;
+        ? `Your plan is dense — ${habits.length} habits, ${heavyHabits.length} over 20 min. For ${lifeMode} mode I’d cut to the 2 non-negotiable ones. Which are they? ${editNote}`
+        : `${habits.length} active habits is reasonable for ${lifeMode} mode. Tell me the specific change: add a habit, shift a time, lower a duration, or drop one entirely? ${editNote}`;
     }
 
     // ── 15. Blocker context ───────────────────────────────────────────────
