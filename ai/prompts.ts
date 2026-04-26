@@ -48,11 +48,17 @@ Return JSON of the form:
 export const COACH_SYSTEM = `You are the user's habit coach inside an app.
 Style: warm, concise, pragmatic. 2–4 short sentences. No lectures, no emojis unless user uses them.
 Behavior rules:
-- Missed streaks → acknowledge, remove shame, suggest a micro-substitute.
-- Low motivation → name one tiny next step the user can do right now.
-- No time → propose a 2-minute fallback version.
-- Low energy / bad sleep → lighten today, not long-term.
+- Answer ANY question the user asks — about their habits, schedule, goals, health, productivity, or personal development.
+- Missed streaks → acknowledge, remove shame, suggest the habit's specific fallback_habit.
+- Low motivation → name one tiny next step the user can do right now using their actual habit data.
+- No time → propose the exact fallback_habit for the relevant habit.
+- Low energy / bad sleep → lighten today's difficulty, not the long-term plan.
 - Overambitious plans → suggest dropping one habit or lowering difficulty.
+- Questions about a specific habit → reference its real title, frequency, duration, and completion rate from CONTEXT.
+- Questions about today / what to do → give a concrete ordered list based on preferred_time slots.
+- Questions about goals → tie the answer back to the user's stated goals and blockers from onboarding.
+- Schedule changes, time-of-day shifts, duration edits → describe the change in plain language and ask if they want to apply it.
+- Progress / stats questions → quote actual numbers from the logs in CONTEXT.
 - Always reference the user's actual habits/logs when relevant. Never invent habits.
 - If a system adaptation is suggested, describe it in plain words and ask if they want to apply it.`;
 
@@ -63,20 +69,28 @@ export function coachContextBlock(input: {
   mood?: number;
   blocker?: string;
 }) {
-  const skipped = input.recentLogs.filter((l) => l.status === "skipped");
-  const done = input.recentLogs.filter((l) => l.status === "completed");
+  const allSkipped = input.recentLogs.filter((l) => l.status === "skipped");
+  const allDone = input.recentLogs.filter((l) => l.status === "completed");
+  const totalLogged = allDone.length + allSkipped.length;
+  const overallRate = totalLogged > 0 ? Math.round((allDone.length / totalLogged) * 100) : null;
+
+  const habitStats = input.activeHabits.map((h) => {
+    const hLogs = input.recentLogs.filter((l) => l.habit_id === h.id);
+    const hDone = hLogs.filter((l) => l.status === "completed").length;
+    const hSkipped = hLogs.filter((l) => l.status === "skipped").length;
+    const hTotal = hDone + hSkipped;
+    const rate = hTotal > 0 ? `${Math.round((hDone / hTotal) * 100)}%` : "no logs yet";
+    return `- ${h.title} (${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m) completion: ${rate} | fallback: ${h.fallback_habit ?? "—"}`;
+  });
+
   return `[CONTEXT]
 Goals: ${input.onboarding?.goals.join("; ") ?? "—"}
+Blockers from setup: ${input.onboarding?.blockers.join("; ") || "—"}
 Life mode: ${input.onboarding?.life_mode ?? "—"} | Energy: ${input.onboarding?.energy_level ?? "—"}
 Availability: ${input.onboarding?.availability_min ?? "—"} min/day
 Active habits (${input.activeHabits.length}):
-${input.activeHabits
-  .map(
-    (h) =>
-      `- ${h.title} (${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m) fallback: ${h.fallback_habit ?? "—"}`
-  )
-  .join("\n") || "—"}
-Last 14 days — completed: ${done.length}, skipped: ${skipped.length}
+${habitStats.join("\n") || "—"}
+Last 14 days — overall: ${allDone.length} completed, ${allSkipped.length} skipped${overallRate !== null ? `, ${overallRate}% rate` : ""}
 ${input.mood ? `Current mood (1-5): ${input.mood}` : ""}
 ${input.blocker ? `Current blocker: ${input.blocker}` : ""}
 [/CONTEXT]`;
