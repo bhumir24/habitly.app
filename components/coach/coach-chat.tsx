@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Send, Bot, Loader2 } from "lucide-react";
+import { Send, Bot, Loader2, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,6 +18,8 @@ const MOODS = [
   { v: 5, label: "🤩" },
 ];
 
+const STORAGE_KEY = "habitly_coach_messages";
+
 export function CoachChat({
   initialMessages,
   fullName,
@@ -32,6 +34,39 @@ export function CoachChat({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the mount-restore effect has already run, so the save
+  // effect skips the very first render and doesn't overwrite stored data.
+  const hasMountedRef = useRef(false);
+
+  // On mount: restore messages from sessionStorage on soft-nav,
+  // or clear storage on hard browser reload (Cmd+R / F5).
+  useEffect(() => {
+    const navType = (
+      performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
+    )?.type;
+    if (navType === "reload") {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } else {
+      try {
+        const stored = sessionStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as CoachMessage[];
+          if (parsed.length > 0) setMessages(parsed);
+        }
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  // Save to sessionStorage whenever messages change.
+  // Skip the very first render so we don't overwrite storage with the
+  // empty initialMessages before the restore effect has had a chance to run.
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -80,6 +115,27 @@ export function CoachChat({
     });
   };
 
+  const handleSave = () => {
+    if (messages.length === 0) return;
+    const lines = messages.map((m) => {
+      const who = m.role === "user" ? (fullName ?? "You") : "Coach";
+      const ts = new Date(m.created_at).toLocaleString();
+      return `[${ts}] ${who}: ${m.content}`;
+    });
+    const blob = new Blob([lines.join("\n\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `habitly-coach-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleClear = () => {
+    setMessages([]);
+    sessionStorage.removeItem(STORAGE_KEY);
+  };
+
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col rounded-xl border bg-card">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -94,7 +150,29 @@ export function CoachChat({
             </div>
           </div>
         </div>
-        <Badge variant="secondary">beta</Badge>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleSave}
+            disabled={messages.length === 0}
+            title="Download chat as text"
+            aria-label="Save chat"
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClear}
+            disabled={messages.length === 0}
+            title="Clear chat"
+            aria-label="Clear chat"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Badge variant="secondary">beta</Badge>
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
