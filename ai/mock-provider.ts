@@ -99,21 +99,24 @@ export class MockProvider implements AIProvider {
     const totalLogged = totalDone + totalSkipped;
     const overallRate = totalLogged > 0 ? Math.round((totalDone / totalLogged) * 100) : null;
 
-    // Find the habit the user is explicitly asking about (name or category match)
-    const mentionedHabit =
-      habits.find((h) =>
-        msg.includes(h.title.toLowerCase()) || msg.includes(h.category.toLowerCase())
-      ) ?? habits[0];
-
-    const micro = mentionedHabit?.fallback_habit ?? "2 minutes of movement";
+    // Habit explicitly named or categorised in the message — NOT a blanket fallback to habits[0]
+    const explicitHabit = habits.find(
+      (h) => msg.includes(h.title.toLowerCase()) || msg.includes(h.category.toLowerCase())
+    );
+    // For micro-action suggestions we still want a sensible default
+    const contextHabit = explicitHabit ?? habits[0];
+    const micro = contextHabit?.fallback_habit ?? "a 2-minute version of your top habit";
 
     const lifeMode = input.profileContext.life_mode.replace(/_/g, " ");
     const energy = input.profileContext.energy_baseline;
 
-    // --- Mood signal (overrides everything) ---
+    // Last coach message — used to handle confirmations like "yes"
+    const lastCoachMsg = [...input.history].reverse().find((m) => m.role === "assistant")?.content ?? "";
+
+    // ── 1. Mood signal (highest priority) ──────────────────────────────────
     if (input.mood !== undefined && input.mood <= 2) {
       return (
-        `Rough one — honor it. Skip the full "${mentionedHabit?.title ?? "plan"}" and just do: ${micro}. ` +
+        `Rough one — honor it. Skip the full "${contextHabit?.title ?? "plan"}" and just do: ${micro}. ` +
         `One small rep keeps your identity intact. We’ll adapt from here.`
       );
     }
@@ -123,11 +126,122 @@ export class MockProvider implements AIProvider {
         return s?.rate !== null && s!.rate >= 0.8 && h.difficulty !== "hard";
       });
       return progressable
-        ? `High energy — use it. Your "${progressable.title}" is at ${Math.round(habitStats.get(progressable.id)!.rate! * 100)}% — perfect time to push a little harder. Want me to bump the duration?`
-        : `Good energy today. Lock in your habits in full — no shortcuts. ${overallRate !== null ? `You’re at ${overallRate}% overall this fortnight, keep that going.` : ""}`;
+        ? `High energy — use it. "${progressable.title}" is at ${Math.round(habitStats.get(progressable.id)!.rate! * 100)}% — perfect time to push a little harder. Want me to bump the duration?`
+        : `Good energy today. Lock in your habits in full — no shortcuts. ${overallRate !== null ? `You’re at ${overallRate}% overall this fortnight.` : ""}`;
     }
 
-    // --- Busy / no time ---
+    // ── 2. "Yes / sure / apply / do it" — confirm what coach just proposed ─
+    if (/^(yes|yeah|sure|ok|okay|apply|do it|go ahead|sounds good|yep)[\s!.]*$/.test(msg.trim())) {
+      if (/bump|progress|duration|step up/i.test(lastCoachMsg)) {
+        const readyHabit = habits.find((h) => {
+          const s = habitStats.get(h.id);
+          return s?.rate !== null && s!.rate >= 0.75;
+        }) ?? contextHabit;
+        return (
+          `Got it. I’ve noted to increase "${readyHabit?.title ?? "that habit"}" by ~30% duration. ` +
+          `Head to the habit page and tap Edit to apply it, or ask me to draft the exact numbers.`
+        );
+      }
+      if (/drop|micro|simpler|reduce|lighten|fallback/i.test(lastCoachMsg)) {
+        return (
+          `Done — switching to micro mode for 5 days makes sense. ` +
+          `Open the habit, lower the difficulty, and set duration to ${Math.max(2, Math.round((contextHabit?.duration_minutes ?? 10) / 2))} min. ` +
+          `Check back in on day 5.`
+        );
+      }
+      if (/shift|time|window|earlier|later/i.test(lastCoachMsg)) {
+        return (
+          `Good call. Go to the habit settings and switch the preferred time. ` +
+          `Even a 1-hour shift can change completion dramatically — give it a week.`
+        );
+      }
+      if (/add|gym|meditat|new habit|generate|create/i.test(lastCoachMsg)) {
+        return (
+          `To add a new habit, go to the Dashboard and tap "+ New Habit". ` +
+          `I’d suggest starting it at "easy" difficulty so it doesn’t compete with your existing plan.`
+        );
+      }
+      return (
+        `Got it. Make the change in the habit settings and log your first attempt — ` +
+        `that’s the only way to know if it sticks. Come back in a few days and we’ll review.`
+      );
+    }
+
+    // ── 3. What can you do / help / capabilities ───────────────────────────
+    if (/what can you (do|help)|how can you (help|assist)|what are you|capabilities|help me/.test(msg)) {
+      const habitList = habits.map((h) => `"${h.title}"`).join(", ");
+      return (
+        `I know your habits (${habitList || "none yet"}), recent logs, mood, and goals. ` +
+        `Ask me: how you’re doing on a specific habit, what to do today, why you’re stuck, ` +
+        `whether to progress or ease off, or to suggest a schedule change. I’ll always answer based on your real data.`
+      );
+    }
+
+    // ── 4. Generate / add / create / regenerate plan ───────────────────────
+    if (/generate|add.*(habit|gym|meditat|workout)|create.*(habit|plan)|new habit|regenerate|rebuild.*plan/.test(msg)) {
+      const wantsMeditation = /meditat/.test(msg);
+      const wantsGym = /gym|workout|exercise|strength/.test(msg);
+      const timeMatch = msg.match(/(\d{1,2})[:\s]?(\d{2})?\s*(am|pm)?/);
+      const timeStr = timeMatch ? timeMatch[0] : null;
+
+      const suggestions: string[] = [];
+      if (wantsGym) {
+        suggestions.push(
+          `Gym session — ${timeStr ? `${timeStr}, ` : ""}45 min, movement category, medium difficulty. ` +
+          `Fallback: 10 min home bodyweight circuit.`
+        );
+      }
+      if (wantsMeditation) {
+        suggestions.push(
+          `Meditation — 10 min, morning, mind category, easy difficulty. ` +
+          `Fallback: 5 slow breaths at your desk.`
+        );
+      }
+      if (suggestions.length === 0) {
+        return (
+          `To add a habit: go to Dashboard → "+ New Habit" and fill in the details. ` +
+          `Tell me specifically what you want to add (name, time, duration) and I’ll give you the exact settings to use.`
+        );
+      }
+      return (
+        `Here’s what I’d add:\n` +
+        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") +
+        `\nGo to Dashboard → "+ New Habit" to create ${suggestions.length > 1 ? "each one" : "it"}. ` +
+        `Reply "yes" once added and I’ll help you tune the plan.`
+      );
+    }
+
+    // ── 5. Any more suggestions / other ideas ─────────────────────────────
+    if (/any (other|more)|what else|other suggestion|more tip|another/.test(msg)) {
+      const underperforming = habits.filter((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate < 0.7;
+      });
+      if (underperforming.length > 0) {
+        const h = underperforming[0];
+        const s = habitStats.get(h.id)!;
+        return (
+          `"${h.title}" is at ${Math.round(s.rate! * 100)}% — that’s the next thing to fix. ` +
+          `Options: shift the time slot, drop to the fallback (${h.fallback_habit ?? "2-min version"}), or reduce frequency. Which direction feels right?`
+        );
+      }
+      const progressable = habits.find((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate >= 0.85 && h.difficulty !== "hard";
+      });
+      if (progressable) {
+        return (
+          `Everything’s looking solid. "${progressable.title}" is ready to progress — ` +
+          `bump the duration by ~30% and increase difficulty one notch. Want to do that?`
+        );
+      }
+      return (
+        `You’re consistent across the board. The next move is to add a new habit or increase one. ` +
+        `What goal area feels neglected right now?`
+      );
+    }
+
+    // ── 6. Busy / no time ──────────────────────────────────────────────────
     if (/no time|too busy|packed|crazy day|overwhelm|no space/.test(msg)) {
       return (
         `Busy day. Run the 2-minute version: ${micro}. ` +
@@ -135,28 +249,38 @@ export class MockProvider implements AIProvider {
       );
     }
 
-    // --- Tired / low energy ---
-    if (/tired|exhaust|drained|no energy|low energy|bad sleep|didn.t sleep|fatigue/.test(msg)) {
-      return (
-        `Energy is the real resource here. Your baseline is ${energy} — on low days, ` +
-        `drop "${mentionedHabit?.title ?? "your hardest habit"}" to its fallback: ${micro}. ` +
-        `Tomorrow you reset; don’t touch the long-term plan for one rough day.`
-      );
+    // ── 7. Tired / sore / low energy ──────────────────────────────────────
+    if (/tired|exhaust|drained|no energy|low energy|bad sleep|didn.t sleep|fatigue|sore|shiver|ache/.test(msg)) {
+      const isPhysical = /sore|shiver|ache|gym|workout|arms|legs|muscle/.test(msg);
+      const movementHabit = habits.find((h) => h.category === "movement");
+      const targetHabit = isPhysical ? (movementHabit ?? contextHabit) : contextHabit;
+      return isPhysical
+        ? (
+          `Physical fatigue after training is recovery time, not a setback. ` +
+          `Skip "${targetHabit?.title ?? "any movement habit"}" today — rest IS the workout. ` +
+          `Light stretching or a walk is fine if you want to move. Everything else in your plan stays.`
+        )
+        : (
+          `Energy is the real resource. Your baseline is ${energy} — on low days, ` +
+          `drop "${targetHabit?.title ?? "your hardest habit"}" to its fallback: ${targetHabit?.fallback_habit ?? micro}. ` +
+          `Tomorrow you reset; don’t change the long-term plan for one rough day.`
+        );
     }
 
-    // --- Missed / skipped ---
+    // ── 8. Missed / skipped ────────────────────────────────────────────────
     if (/miss|skip|slip|broke|forgot|didn.t do|failed|behind|streak/.test(msg) || totalSkipped >= 3) {
       const worstHabit = habits.reduce<typeof habits[0] | undefined>((worst, h) => {
         const s = habitStats.get(h.id)!;
         const wS = worst ? habitStats.get(worst.id)! : null;
         if (s.done + s.skipped < 2) return worst;
         return !wS || (s.rate ?? 1) < (wS.rate ?? 1) ? h : worst;
-      }, undefined) ?? mentionedHabit;
+      }, undefined) ?? contextHabit;
 
       const worstStat = worstHabit ? habitStats.get(worstHabit.id) : null;
-      const rateStr = worstStat?.rate !== null && worstStat?.rate !== undefined
-        ? ` (${Math.round(worstStat.rate * 100)}% completion)`
-        : "";
+      const rateStr =
+        worstStat?.rate !== null && worstStat?.rate !== undefined
+          ? ` (${Math.round(worstStat.rate * 100)}% completion)`
+          : "";
 
       return (
         `Missing sessions is data, not failure. "${worstHabit?.title ?? "one habit"}"${rateStr} is your friction point. ` +
@@ -165,7 +289,7 @@ export class MockProvider implements AIProvider {
       );
     }
 
-    // --- Motivation / procrastination ---
+    // ── 9. Motivation / procrastination ────────────────────────────────────
     if (/motivat|lazy|procrastinat|can.t|don.t want|not feeling|resistance|meh/.test(msg)) {
       return (
         `Motivation follows action — not the other way. Do ${micro} in the next 5 minutes. ` +
@@ -173,7 +297,7 @@ export class MockProvider implements AIProvider {
       );
     }
 
-    // --- Progression / want harder ---
+    // ── 10. Progression ───────────────────────────────────────────────────
     if (/progress|next level|harder|step up|advance|level up|challeng|grow/.test(msg)) {
       const ready = habits.find((h) => {
         const s = habitStats.get(h.id);
@@ -187,56 +311,55 @@ export class MockProvider implements AIProvider {
         );
       }
       return (
-        `Not quite yet — you need 75%+ completion on a habit before stepping up. ` +
+        `Not quite yet — you need 75%+ on a habit before stepping up. ` +
         `${overallRate !== null ? `You’re at ${overallRate}% overall.` : "Get a few more weeks of logs first."} ` +
-        `Focus on consistency; progression unlocks itself.`
+        `Consistency is the prerequisite.`
       );
     }
 
-    // --- Questions about a specific habit ---
-    if (mentionedHabit && /\?|how|what|when|why|which|tell me|explain|stat|progress|doing/.test(msg)) {
-      const s = habitStats.get(mentionedHabit.id)!;
+    // ── 11. Question about an explicitly named habit ───────────────────────
+    if (explicitHabit) {
+      const s = habitStats.get(explicitHabit.id)!;
       const rateStr = s.rate !== null ? `${Math.round(s.rate * 100)}%` : "no logs yet";
 
       if (/when|time|schedul/.test(msg)) {
         return (
-          `"${mentionedHabit.title}" is set for ${mentionedHabit.preferred_time.replace(/_/g, " ")}. ` +
+          `"${explicitHabit.title}" is set for ${explicitHabit.preferred_time.replace(/_/g, " ")}. ` +
           (s.rate !== null && s.rate < 0.5
-            ? `You’re only completing it ${Math.round(s.rate * 100)}% of the time — that window might not be working. Want to shift it?`
-            : `Completion is ${rateStr} — that slot seems to be working for you.`)
+            ? `Only ${Math.round(s.rate * 100)}% completion — that window might not be working. Want to shift it?`
+            : `Completion is ${rateStr} — the slot seems to be working.`)
         );
       }
       if (/how long|duration|minute/.test(msg)) {
         return (
-          `"${mentionedHabit.title}" is ${mentionedHabit.duration_minutes} minutes. ` +
-          `The fallback if time is short: ${mentionedHabit.fallback_habit ?? "2-minute version"}. ` +
-          (s.rate !== null && s.rate < 0.5 ? `Given the low completion rate, the duration might be the blocker — want to halve it for a week?` : "")
+          `"${explicitHabit.title}" is ${explicitHabit.duration_minutes} minutes. ` +
+          `Fallback: ${explicitHabit.fallback_habit ?? "2-minute version"}. ` +
+          (s.rate !== null && s.rate < 0.5
+            ? `Low completion rate suggests the duration is the blocker — want to halve it for a week?`
+            : "")
         );
       }
       if (/stat|progress|complet|how am i|doing|rate/.test(msg)) {
         const total = s.done + s.skipped;
-        if (total === 0) {
-          return `No logs yet for "${mentionedHabit.title}". Let’s get a first data point — try it today and mark it.`;
-        }
+        if (total === 0) return `No logs yet for "${explicitHabit.title}". Try it today and mark it — that’s the first data point.`;
         return (
-          `"${mentionedHabit.title}": ${s.done} completed, ${s.skipped} skipped over the last 14 days (${rateStr}). ` +
+          `"${explicitHabit.title}": ${s.done} completed, ${s.skipped} skipped (${rateStr}) over 14 days. ` +
           (s.rate! < 0.5
-            ? `Below 50% — the habit is likely too hard or timed wrong. Want to adjust?`
+            ? `Below 50% — likely too hard or mistimed. Want to adjust?`
             : s.rate! >= 0.8
-            ? `Strong. You may be ready to progress this one.`
-            : `Solid middle ground — keep it for another week and see if it stabilises.`)
+            ? `Strong. May be ready to progress.`
+            : `Solid middle ground — keep it another week.`)
         );
       }
-      // General question about a habit
       return (
-        `"${mentionedHabit.title}" — ${mentionedHabit.duration_minutes}m, ${mentionedHabit.preferred_time.replace(/_/g, " ")}, ${mentionedHabit.difficulty}. ` +
-        `Completion last 14 days: ${rateStr}. Fallback: ${mentionedHabit.fallback_habit ?? "—"}. ` +
-        `What specifically would you like to change?`
+        `"${explicitHabit.title}" — ${explicitHabit.duration_minutes}m, ${explicitHabit.preferred_time.replace(/_/g, " ")}, ${explicitHabit.difficulty} difficulty. ` +
+        `Completion: ${rateStr}. Fallback: ${explicitHabit.fallback_habit ?? "—"}. ` +
+        `What do you want to change?`
       );
     }
 
-    // --- Today / what to do now ---
-    if (/today|right now|now|start|begin|where|what should|what do/.test(msg)) {
+    // ── 12. Today / what to do now ────────────────────────────────────────
+    if (/today|right now|now|start|begin|what should|what do/.test(msg)) {
       const ordered = [...habits].sort((a, b) => {
         const order = ["early_morning", "morning", "midday", "afternoon", "evening", "night", "any"];
         return order.indexOf(a.preferred_time) - order.indexOf(b.preferred_time);
@@ -244,36 +367,36 @@ export class MockProvider implements AIProvider {
       const first = ordered[0];
       return (
         `Start with "${first?.title ?? "your first habit"}" — ${first?.duration_minutes ?? 10} min, ${first?.preferred_time?.replace(/_/g, " ") ?? "now"}. ` +
-        (ordered.length > 1 ? `After that: ${ordered.slice(1, 3).map((h) => `"${h.title}"`).join(", ")}. ` : "") +
-        `If the full version is too much, the fallback is: ${first?.fallback_habit ?? micro}.`
+        (ordered.length > 1 ? `After: ${ordered.slice(1, 3).map((h) => `"${h.title}"`).join(", ")}. ` : "") +
+        `Fallback if needed: ${first?.fallback_habit ?? micro}.`
       );
     }
 
-    // --- Goals ---
-    if (/goal|aim|target|trying to|want to|purpose|why/.test(msg)) {
+    // ── 13. Goals ─────────────────────────────────────────────────────────
+    if (/goal|aim|target|trying to|purpose|why/.test(msg)) {
       const goals = input.onboarding?.goals ?? [];
       return goals.length > 0
-        ? `Your goals: ${goals.join("; ")}. Your current habits are the direct levers for those. Is there a goal you feel isn’t being served by the plan?`
-        : `Set your goals during onboarding and I can tie every habit back to them specifically.`;
+        ? `Your goals: ${goals.join("; ")}. Your habits are the direct levers. Is there a goal that feels un-served by the current plan?`
+        : `Set your goals during onboarding and I’ll tie each habit back to them specifically.`;
     }
 
-    // --- Plan / schedule questions ---
+    // ── 14. Plan / schedule tweaks ────────────────────────────────────────
     if (/plan|schedule|routine|change|adjust|tweak|restructure|overhaul/.test(msg)) {
       const heavyHabits = habits.filter((h) => h.duration_minutes > 20);
       return heavyHabits.length > 3
-        ? `Your plan has ${habits.length} habits, ${heavyHabits.length} over 20 min — that’s dense for ${lifeMode} mode. I’d cut to the 2 non-negotiable ones. Which are they?`
-        : `You have ${habits.length} active habits — reasonable for ${lifeMode} mode. What specific part of the schedule do you want to change?`;
+        ? `Your plan is dense — ${habits.length} habits, ${heavyHabits.length} over 20 min. For ${lifeMode} mode I’d cut to the 2 non-negotiable ones. Which are they?`
+        : `${habits.length} active habits is reasonable for ${lifeMode} mode. Tell me the specific change: add a habit, shift a time, lower a duration, or drop one entirely?`;
     }
 
-    // --- Blocker context ---
+    // ── 15. Blocker context ───────────────────────────────────────────────
     if (input.blocker) {
       return (
-        `Blocker noted: "${input.blocker}". Swap "${mentionedHabit?.title ?? "the affected habit"}" for its fallback today: ${micro}. ` +
+        `Blocker: "${input.blocker}". Swap "${contextHabit?.title ?? "the affected habit"}" for its fallback today: ${micro}. ` +
         `What would need to change to remove that blocker tomorrow?`
       );
     }
 
-    // --- Overall stats request ---
+    // ── 16. Stats / overview ──────────────────────────────────────────────
     if (/stat|overview|summary|how.*week|how.*fortnight|how.*doing/.test(msg)) {
       const lines = habits.map((h) => {
         const s = habitStats.get(h.id)!;
@@ -281,31 +404,33 @@ export class MockProvider implements AIProvider {
         return `"${h.title}": ${r}`;
       });
       return (
-        `Last 14 days — ${totalDone} completed, ${totalSkipped} skipped (${overallRate ?? "—"}% overall).\n` +
+        `Last 14 days — ${totalDone} completed, ${totalSkipped} skipped (${overallRate ?? "—"}% overall). ` +
         lines.join(" | ") +
-        `. Biggest lever: focus on the habit below 60%.`
+        `. Focus first on any habit below 60%.`
       );
     }
 
-    // --- Flexible fallback: reference actual data ---
+    // ── 17. Flexible fallback — only show "friction" if rate is actually low ─
     const lowestHabit = habits.reduce<typeof habits[0] | undefined>((worst, h) => {
       const s = habitStats.get(h.id)!;
       const wS = worst ? habitStats.get(worst.id)! : null;
-      if (s.rate === null) return worst;
+      if (s.rate === null || s.rate >= 0.7) return worst;
       return !wS || s.rate < (wS.rate ?? 1) ? h : worst;
     }, undefined);
 
-    const statsLine = overallRate !== null
-      ? `You’re at ${overallRate}% completion over the last 14 days. `
-      : "";
+    const statsLine = overallRate !== null ? `You’re at ${overallRate}% completion over the last 14 days. ` : "";
+    const frictionLine =
+      lowestHabit && habitStats.get(lowestHabit.id)?.rate !== null
+        ? `Biggest friction: "${lowestHabit.title}" (${Math.round(habitStats.get(lowestHabit.id)!.rate! * 100)}%). `
+        : overallRate !== null && overallRate >= 90
+        ? `All habits looking strong. `
+        : "";
 
     return (
-      `${statsLine}` +
-      (lowestHabit && habitStats.get(lowestHabit.id)?.rate !== null
-        ? `Biggest friction: "${lowestHabit.title}" (${Math.round(habitStats.get(lowestHabit.id)!.rate! * 100)}%). `
-        : ``) +
+      statsLine +
+      frictionLine +
       `In ${lifeMode} mode with ${habits.length} active habits, the most useful move today is: ${micro}. ` +
-      `Ask me about any specific habit, goal, or what to do right now.`
+      `Ask me about a specific habit, what to do today, or how to change the plan.`
     );
   }
 
