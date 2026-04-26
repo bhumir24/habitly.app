@@ -38,23 +38,16 @@ export function CoachChat({
   // effect skips the very first render and doesn't overwrite stored data.
   const hasMountedRef = useRef(false);
 
-  // On mount: restore messages from sessionStorage on soft-nav,
-  // or clear storage on hard browser reload (Cmd+R / F5).
+  // On mount: restore messages from sessionStorage.
+  // Chat only resets when the user clicks Clear — not on navigation or reload.
   useEffect(() => {
-    const navType = (
-      performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
-    )?.type;
-    if (navType === "reload") {
-      sessionStorage.removeItem(STORAGE_KEY);
-    } else {
-      try {
-        const stored = sessionStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as CoachMessage[];
-          if (parsed.length > 0) setMessages(parsed);
-        }
-      } catch { /* ignore */ }
-    }
+    try {
+      const stored = sessionStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as CoachMessage[];
+        if (parsed.length > 0) setMessages(parsed);
+      }
+    } catch { /* ignore */ }
   }, []);
 
   // Save to sessionStorage whenever messages change.
