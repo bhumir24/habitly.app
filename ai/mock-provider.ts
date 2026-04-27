@@ -113,7 +113,32 @@ export class MockProvider implements AIProvider {
     // Last coach message — used to handle confirmations like "yes"
     const lastCoachMsg = [...input.history].reverse().find((m) => m.role === "assistant")?.content ?? "";
 
-    // ── 1. Mood signal (highest priority) ──────────────────────────────────
+    // ── 0. Actionable intents first — low mood must not erase specific requests ─
+    const wantsNewHabitOrGoal =
+      (/add|create|new|start|put|include|append/.test(msg) &&
+        /habit|goal|meditat|mindful|breath|agenda|routine|plan/.test(msg)) ||
+      (/meditat/.test(msg) && /add|new|start|include|put/.test(msg)) ||
+      /to my agenda/.test(msg) ||
+      /set\s*up\s+(a\s+)?goal|goal\s+(based|according)|according\s+to\s+my\s+mood/.test(msg);
+
+    if (wantsNewHabitOrGoal) {
+      const rough = input.mood !== undefined && input.mood <= 2;
+      const empathy = rough ? "Rough day — honor that. Keep the bar low. " : "";
+      if (/meditat|mindful|breath/.test(msg)) {
+        return (
+          empathy +
+          "Add **Meditation** from **Dashboard → + New Habit**: title e.g. \"5-min breathing\", **5–10 min**, **easy**, " +
+          "fallback: \"5 slow breaths at your desk.\" Hard days = fallback only is a win."
+        );
+      }
+      return (
+        empathy +
+        "Use **Dashboard → + New Habit**: short title, **easy** difficulty, and a **2-minute fallback** so it still fits low-energy days. " +
+        "Tell me the habit name and I’ll suggest duration + time of day."
+      );
+    }
+
+    // ── 1. Mood signal (after concrete asks) ─────────────────────────────
     if (input.mood !== undefined && input.mood <= 2) {
       return (
         `Rough one — honor it. Skip the full "${contextHabit?.title ?? "plan"}" and just do: ${micro}. ` +
