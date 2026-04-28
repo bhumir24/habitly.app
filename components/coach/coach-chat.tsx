@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Send, Bot, Loader2, Download, Trash2 } from "lucide-react";
+import { Send, Bot, Loader2, Download, Trash2, Plus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn, initials } from "@/lib/utils";
 import { sendCoachMessage } from "@/actions/coach";
-import type { CoachMessage } from "@/types";
+import { addGeneratedHabit } from "@/actions/habits";
+import type { CoachMessage, GeneratedHabit } from "@/types";
 
 const MOODS = [
   { v: 1, label: "😞" },
@@ -99,7 +100,7 @@ export function CoachChat({
           user_id: "me",
           role: "assistant",
           content: res.reply,
-          context: {},
+          context: res.habitSuggestion ? { habitSuggestion: res.habitSuggestion } : {},
           created_at: new Date().toISOString(),
         },
       ]);
@@ -236,6 +237,10 @@ export function CoachChat({
 
 function Bubble({ msg, fullName }: { msg: CoachMessage; fullName: string | null }) {
   const isUser = msg.role === "user";
+  const habitSuggestion = !isUser
+    ? (msg.context?.habitSuggestion as GeneratedHabit | undefined)
+    : undefined;
+
   return (
     <div className={cn("flex items-end gap-2", isUser && "flex-row-reverse")}>
       <Avatar className="h-7 w-7">
@@ -243,16 +248,69 @@ function Bubble({ msg, fullName }: { msg: CoachMessage; fullName: string | null 
           {isUser ? initials(fullName) : <Bot className="h-3.5 w-3.5" />}
         </AvatarFallback>
       </Avatar>
-      <div
-        className={cn(
-          "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
-          isUser
-            ? "rounded-br-sm bg-primary text-primary-foreground"
-            : "rounded-bl-sm border bg-background"
-        )}
-      >
-        {msg.content}
+      <div className={cn("max-w-[80%] space-y-2", isUser && "items-end")}>
+        <div
+          className={cn(
+            "rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+            isUser
+              ? "rounded-br-sm bg-primary text-primary-foreground"
+              : "rounded-bl-sm border bg-background"
+          )}
+        >
+          {msg.content}
+        </div>
+        {habitSuggestion && <HabitSuggestionCard habit={habitSuggestion} />}
       </div>
+    </div>
+  );
+}
+
+function HabitSuggestionCard({ habit }: { habit: GeneratedHabit }) {
+  const [state, setState] = useState<"idle" | "adding" | "added">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    setState("adding");
+    const res = await addGeneratedHabit(habit);
+    if (!res.ok) {
+      setError(res.error);
+      setState("idle");
+      return;
+    }
+    setState("added");
+  };
+
+  return (
+    <div className="rounded-xl border bg-card px-3.5 py-3 shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">{habit.title}</p>
+          <p className="text-xs text-muted-foreground">
+            {habit.duration_minutes}m · {habit.preferred_time.replace(/_/g, " ")} · {habit.difficulty}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant={state === "added" ? "success" : "default"}
+          className="h-7 shrink-0 gap-1 px-2 text-xs"
+          onClick={handleAdd}
+          disabled={state !== "idle"}
+        >
+          {state === "adding" ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : state === "added" ? (
+            <><Check className="h-3 w-3" /> Added</>
+          ) : (
+            <><Plus className="h-3 w-3" /> Add to plan</>
+          )}
+        </Button>
+      </div>
+      {habit.fallback_habit && (
+        <p className="text-xs text-muted-foreground">
+          Fallback: {habit.fallback_habit}
+        </p>
+      )}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }

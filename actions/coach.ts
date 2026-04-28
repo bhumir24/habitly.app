@@ -6,7 +6,7 @@ import { coachMessageSchema } from "@/lib/validations";
 import { getAIProvider } from "@/ai/provider";
 import { canUse } from "@/lib/feature-flags";
 import { FREE_LIMITS } from "@/lib/feature-flags";
-import type { Adaptation, Habit, HabitLog } from "@/types";
+import type { Adaptation, GeneratedHabit, Habit, HabitLog } from "@/types";
 import { deriveAdaptations } from "@/services/adaptation-engine";
 
 export async function sendCoachMessage(input: {
@@ -90,14 +90,23 @@ export async function sendCoachMessage(input: {
     blocker: parsed.data.blocker,
   });
 
+  // Parse inline habit suggestion embedded by the AI provider
+  let habitSuggestion: GeneratedHabit | undefined;
+  const habitActionMatch = reply.match(/\[HABIT_ACTION:(\{.*\})\]/);
+  const cleanReply = reply.replace(/\s*\[HABIT_ACTION:\{.*\}\]/, "").trim();
+  if (habitActionMatch) {
+    try { habitSuggestion = JSON.parse(habitActionMatch[1]) as GeneratedHabit; } catch { /* ignore */ }
+  }
+
   await supabase.from("coach_messages").insert({
     user_id: user.id,
     role: "assistant",
-    content: reply,
+    content: cleanReply,
+    context: habitSuggestion ? { habitSuggestion } : {},
   });
 
   revalidatePath("/coach");
-  return { ok: true as const, reply };
+  return { ok: true as const, reply: cleanReply, habitSuggestion };
 }
 
 export async function suggestAdaptations(): Promise<
