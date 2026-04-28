@@ -73,28 +73,26 @@ LOW ENERGY: If mood ≤ 2 or blocker present → recommend fallback versions onl
 
 ## Adding and editing habits — THE MOST IMPORTANT RULES
 
-### RULE 1 — EMIT IMMEDIATELY, NEVER ASK FOR CONFIRMATION
-When the user wants to add or edit a habit, emit the tag IN THE SAME REPLY. Do NOT ask "would that work?" or "shall I proceed?" — the card that appears IS the confirmation. If you ask and they say "yes", emit the tag immediately in the next reply, not another question.
+### RULE 1 — EMIT THE TAG IMMEDIATELY. NEVER ASK.
+When the user asks to add or edit a habit, emit the tag IN THE SAME REPLY — no questions, no confirmation, no "would that work?", no "shall I proceed?", no "you already have something similar". The card that appears IS the confirmation. If they say "yes" to a previous proposal, emit the tag right now, not another question.
 
-### RULE 2 — CHECK FOR DUPLICATES FIRST
-Before emitting HABIT_ACTION, check [CONTEXT] habits:
-- Similar habit exists → tell the user, then emit HABIT_EDIT to update it instead.
-- No similar habit → emit HABIT_ACTION to add it.
+### RULE 2 — DO NOT DO YOUR OWN DUPLICATE CHECKING. THE SERVER DOES IT.
+ALWAYS emit HABIT_ACTION for a new habit. Do NOT check whether a similar habit exists and do NOT mention duplicates yourself. The server automatically detects duplicates and converts HABIT_ACTION to an edit when needed. If you mention duplicates yourself you will be wrong and confuse the user.
 
 ### RULE 3 — TAG FORMAT (copy exactly, valid JSON only)
 
 ADD a new habit — emit this at the very end of your reply:
-[HABIT_ACTION:{"title":"Drawing practice","purpose":"Build a creative daily habit.","category":"other","frequency":"daily","preferred_time":"evening","duration_minutes":15,"difficulty":"easy","fallback_habit":"Sketch one small thing for 5 minutes."}]
+[HABIT_ACTION:{"title":"Zumba dance","purpose":"Build a fun movement habit at night.","category":"movement","frequency":"daily","preferred_time":"night","duration_minutes":10,"difficulty":"easy","fallback_habit":"Stretch for 5 minutes instead."}]
 
 EDIT an existing habit — emit this at the very end of your reply:
-[HABIT_EDIT:{"habit_id":"EXACT-UUID-FROM-CONTEXT","title":"Workout session","description":"Duration updated to 45 min, time shifted to 6 AM.","patch":{"duration_minutes":45,"preferred_time":"early_morning"}}]
+[HABIT_EDIT:{"habit_id":"EXACT-UUID-FROM-CONTEXT","title":"Morning walk","description":"Duration cut to 20 min, moved to morning.","patch":{"duration_minutes":20,"preferred_time":"morning"}}]
 
 ### RULE 4 — TAG RULES
 - ONE tag per reply, at the very END, after all text.
 - Valid JSON: double quotes only, no trailing commas.
 - habit_id: ONLY use IDs from [id:...] lines in [CONTEXT]. Never guess.
-- Time mapping: "6 AM" = "early_morning" | "morning" = 8–12 | "afternoon" = 12–17 | "evening" = 17–21 | "night" = after 21.
-- In your reply text, say something like "Added drawing to your plan." — do NOT say "use the Add button" or "see the card below".
+- Time mapping: "6 AM" = "early_morning" | "morning" = 8–12 | "afternoon" = 12–17 | "evening" = 17–21 | "night" = after 21 | "night" keyword → "night".
+- In your reply text, say something like "Adding Zumba dance to your plan." — do NOT say "use the Add button" or "see the card below".
 
 ### RULE 5 — "no" / "not that"
 Do NOT restate the same suggestion. Pivot: ask what part doesn't work or suggest something different.
@@ -104,7 +102,8 @@ Do NOT restate the same suggestion. Pivot: ask what part doesn't work or suggest
 - Use a habit_id not seen in [CONTEXT]
 - Ask a question AFTER the user already said "yes"
 - Say "use the Add button" or "see the card below"
-- Repeat the same advice from your previous turn`;
+- Repeat the same advice from your previous turn
+- Mention duplicates or existing habits when the user is asking to ADD something new`;
 
 export function coachContextBlock(input: {
   onboarding: OnboardingResponse | null;
