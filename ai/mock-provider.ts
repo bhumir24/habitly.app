@@ -182,7 +182,11 @@ export class MockProvider implements AIProvider {
     // ── 5. Add / track a specific new habit ───────────────────────────────
     if (/^(add|track|i want to (add|track|start)|can you add|create)\s+.{3,}/.test(msg) ||
         /add.*(habit|routine|practice)|track.*(habit|daily|routine)|i want to start|new habit for/.test(msg)) {
-      return habitAction(msg, input.onboarding?.preferred_times?.[0] ?? "morning");
+      const feelingLow = /feel(ing)?\s*(low|tired|bad|rough|down|stressed|exhaust)|not (great|good)|rough day/.test(msg);
+      const prefix = feelingLow
+        ? `Rough day — got it. Setting the bar low is smart. `
+        : "";
+      return prefix + habitAction(msg, input.onboarding?.preferred_times?.[0] ?? "morning");
     }
 
     // ── 6. Navigation / where to find things ──────────────────────────────
@@ -671,16 +675,32 @@ function habitAction(msg: string, preferredTime: TimeOfDay): string {
       difficulty: "easy",
       fallback_habit: "Sit down to eat — no screens.",
     };
+  } else if (/break|sit(ting)?|desk|pomodoro|every\s*\d+\s*min|screen break|eye|rest.*work|work.*rest/.test(g)) {
+    const mins = g.match(/(\d+)\s*min/)?.[1];
+    const interval = mins ? `every ${mins} minutes` : "every 20 minutes";
+    habit = {
+      title: `Desk break ${interval}`,
+      purpose: "Prevent eye strain and posture fatigue by stepping away from the screen regularly. Improves focus and reduces physical tension from long sitting sessions.",
+      category: "health",
+      frequency: "daily",
+      preferred_time: "any",
+      duration_minutes: 5,
+      difficulty: "easy",
+      fallback_habit: "Stand up, roll your shoulders, look 20 feet away for 20 seconds.",
+    };
   } else {
-    // Generic: extract intent from message
-    const cleaned = g
-      .replace(/\b(add|track|i want to|can you|could you|create|new habit for|start|i'd like to|please)\b/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    const title = cleaned.charAt(0).toUpperCase() + cleaned.slice(1, 50);
+    // Generic: extract only the text AFTER the trigger word to avoid including
+    // preamble like "I am feeling low today, due to work, add a routine that..."
+    const afterTrigger = g.match(
+      /(?:add|track|create|start|i want to (?:add|track|start)|new habit for)\s+(?:a\s+)?(?:routine|habit|practice\s+)?(?:that\s+|where\s+|to\s+)?(.*)/
+    )?.[1] ?? g.replace(/\b(add|track|i want to|can you|could you|create|new habit for|start|i'd like to|please|a routine that|a habit that)\b/g, "").trim();
+
+    // Clean up and title-case
+    const intent = afterTrigger.replace(/\s+/g, " ").trim().slice(0, 60);
+    const title = intent.charAt(0).toUpperCase() + intent.slice(1);
     habit = {
       title: title || "New habit",
-      purpose: `Make steady progress on: ${cleaned}`,
+      purpose: `Build consistency around: ${intent}. Start small — a daily 2-minute version is enough to form the pattern first.`,
       category: "other",
       frequency: "daily",
       preferred_time: preferredTime,
