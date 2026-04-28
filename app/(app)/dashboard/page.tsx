@@ -10,6 +10,7 @@ import { StatCard } from "@/components/habit/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AdaptationsPanel } from "@/components/habit/adaptations-panel";
 import { SuggestedHabitsPanel } from "@/components/habit/suggested-habits-panel";
+import { NewHabitDialog } from "@/components/habit/new-habit-dialog";
 import {
   habitsDueToday,
   completionRate,
@@ -115,6 +116,7 @@ export default async function DashboardPage() {
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Today's habits</h2>
+            <NewHabitDialog />
           </div>
           {due.length === 0 ? (
             <EmptyState
