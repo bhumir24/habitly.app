@@ -4,6 +4,7 @@ import type {
   GeneratedHabit,
   GeneratedPlan,
   Habit,
+  HabitLog,
   OnboardingResponse,
   TimeOfDay,
 } from "@/types";
@@ -111,6 +112,10 @@ export class MockProvider implements AIProvider {
     const energy = input.profileContext.energy_baseline;
     const lastCoachMsg = [...input.history].reverse().find((m) => m.role === "assistant")?.content ?? "";
 
+    // ── Adaptive context (computed once, used across multiple branches) ────
+    const best = bestTimeWindow(habits, logs);
+    const moodCorr = moodHabitCorrelation(logs);
+
     // ── 0. Greeting / small talk ───────────────────────────────────────────
     if (/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup|what’?s up|hiya)[!.?]*$/.test(msg)) {
       if (habits.length === 0) {
@@ -130,16 +135,26 @@ export class MockProvider implements AIProvider {
 
     // ── 1. Mood signal ─────────────────────────────────────────────────────
     if (input.mood !== undefined && input.mood <= 2) {
-      return `Rough one — honor it. Skip the full "${contextHabit?.title ?? "plan"}" and just do: ${micro}. One small rep keeps your identity intact. We’ll adapt from here.`;
+      // Adaptive: per-habit adjusted plan with fallbacks
+      const adjustedLines = habits.slice(0, 5).map((h) =>
+        `• "${h.title}" → ${h.fallback_habit ?? "2-min version"}`
+      );
+      const moodNote = moodCorr
+        ? ` Data backs this: you complete habits at avg mood ${moodCorr.completeMoodAvg.toFixed(1)}/5, skip at ${moodCorr.skipMoodAvg.toFixed(1)}/5.`
+        : "";
+      return `Rough one — here’s today’s adjusted plan (fallbacks only):\n${adjustedLines.join("\n")}\n\nOne rep per habit keeps the identity intact.${moodNote} Reset tomorrow.`;
     }
     if (input.mood !== undefined && input.mood >= 4) {
       const progressable = habits.find((h) => {
         const s = habitStats.get(h.id);
         return s?.rate !== null && s!.rate >= 0.8 && h.difficulty !== "hard";
       });
+      const bestSlotNote = best && best.rate >= 0.8
+        ? ` Your ${best.window.replace(/_/g, " ")} window is your strongest (${Math.round(best.rate * 100)}%) — schedule the hardest habit there.`
+        : "";
       return progressable
-        ? `High energy — use it. "${progressable.title}" is at ${Math.round(habitStats.get(progressable.id)!.rate! * 100)}% — perfect time to push a little harder. Want me to bump the duration?`
-        : `Good energy today. Lock in your habits in full — no shortcuts. ${overallRate !== null ? `You’re at ${overallRate}% overall.` : ""}`;
+        ? `High energy — use it. "${progressable.title}" is at ${Math.round(habitStats.get(progressable.id)!.rate! * 100)}% — perfect time to push harder.${bestSlotNote} Want me to bump the duration?`
+        : `Good energy today. Lock in your habits in full — no shortcuts. ${overallRate !== null ? `You’re at ${overallRate}% overall.` : ""}${bestSlotNote}`;
     }
 
     // ── 2. Confirmation ────────────────────────────────────────────────────
@@ -182,7 +197,11 @@ export class MockProvider implements AIProvider {
     // ── 5. Add / track a specific new habit ───────────────────────────────
     if (/^(add|track|i want to (add|track|start)|can you add|create)\s+.{3,}/.test(msg) ||
         /add.*(habit|routine|practice)|track.*(habit|daily|routine)|i want to start|new habit for/.test(msg)) {
-      return habitAction(msg, input.onboarding?.preferred_times?.[0] ?? "morning");
+      const feelingLow = /feel(ing)?\s*(low|tired|bad|rough|down|stressed|exhaust)|not (great|good)|rough day/.test(msg);
+      const prefix = feelingLow
+        ? `Rough day — got it. Setting the bar low is smart. `
+        : "";
+      return prefix + habitAction(msg, input.onboarding?.preferred_times?.[0] ?? "morning");
     }
 
     // ── 6. Navigation / where to find things ──────────────────────────────
@@ -226,13 +245,23 @@ export class MockProvider implements AIProvider {
     if (/tired|exhaust|drained|no energy|low energy|bad sleep|didn.t sleep|fatigue|sore|ache/.test(msg)) {
       const isPhysical = /sore|ache|gym|workout|arms|legs|muscle/.test(msg);
       const movementHabit = habits.find((h) => h.category === "movement");
-      const targetHabit = isPhysical ? (movementHabit ?? contextHabit) : contextHabit;
-      return isPhysical
-        ? `Physical fatigue after training is recovery, not failure. Skip "${targetHabit?.title ?? "movement"}" today — rest IS the workout. Light stretching is fine. Everything else in your plan stays.`
-        : `Energy is the real resource. Your baseline is ${energy} — on low days, drop "${targetHabit?.title ?? "your hardest habit"}" to its fallback: ${targetHabit?.fallback_habit ?? micro}. Tomorrow you reset; don’t change the long-term plan for one rough day.`;
+      if (isPhysical) {
+        return `Physical fatigue is recovery, not failure. Skip "${movementHabit?.title ?? "movement"}" today — rest IS the workout. Everything else in your plan stays:\n${
+          habits.filter((h) => h.category !== "movement").slice(0, 4)
+            .map((h) => `• "${h.title}" → ${h.fallback_habit ?? "2-min version"}`).join("\n")
+        }`;
+      }
+      // Adaptive: per-habit adjusted targets for low-energy day
+      const adjustedLines = habits.slice(0, 5).map((h) =>
+        `• "${h.title}" → ${h.fallback_habit ?? "2-min version"}`
+      );
+      const moodNote = moodCorr
+        ? ` Pattern: your skip rate rises when mood ≤ ${moodCorr.threshold}/5 — today fits that pattern.`
+        : ` Your energy baseline is ${energy}.`;
+      return `Low energy day — activate fallback mode:${moodNote}\n${adjustedLines.join("\n")}\n\nDon’t skip entirely. A fallback still counts as a win.`;
     }
 
-    // ── 10. Missed / skipped — only fires when message is about missing ────
+    // ── 10. Missed / skipped — adaptive: why + what to do ────────────────
     if (/miss|skip|slip|broke.*streak|forgot|didn.t do|failed|behind on|fell off/.test(msg)) {
       const worstHabit = habits.reduce<typeof habits[0] | undefined>((worst, h) => {
         const s = habitStats.get(h.id)!;
@@ -242,9 +271,25 @@ export class MockProvider implements AIProvider {
       }, undefined) ?? contextHabit;
 
       const worstStat = worstHabit ? habitStats.get(worstHabit.id) : null;
-      const rateStr = worstStat?.rate != null ? ` (${Math.round(worstStat.rate * 100)}% completion)` : "";
+      const rateStr = worstStat?.rate != null ? `${Math.round(worstStat.rate * 100)}%` : null;
+      const skipStreak = worstHabit ? recentSkipStreak(worstHabit.id, logs) : 0;
 
-      return `Missing sessions is data, not failure. "${worstHabit?.title ?? "one habit"}"${rateStr} is your friction point. I’d drop it to micro for 5 days: ${worstHabit?.fallback_habit ?? micro}. Want me to draft that change?`;
+      // Why they’re skipping — mood correlation
+      const whyLine = moodCorr
+        ? `Pattern in your data: you skip most when mood ≤ ${moodCorr.threshold}/5 (avg ${moodCorr.skipMoodAvg.toFixed(1)} on skip days vs ${moodCorr.completeMoodAvg.toFixed(1)} on complete days). That’s a signal, not a character flaw.`
+        : `Missing is data — it means friction, not failure.`;
+
+      // What to do — tiered by severity
+      if (skipStreak >= 4 && worstHabit?.frequency === "daily") {
+        return `${whyLine}\n\n"${worstHabit.title}" has been skipped ${skipStreak} days in a row. Reset the frequency: switch to Mon / Wed / Fri for 2 weeks to rebuild momentum without daily pressure. Dashboard → tap habit → Edit → Frequency.`;
+      }
+      if (skipStreak >= 2) {
+        return `${whyLine}\n\n"${worstHabit?.title ?? "that habit"}" skipped ${skipStreak} days running. ${rateStr ? `Completion: ${rateStr}.` : ""} Try the stepwise approach:\n${stepwisePlan(worstHabit ?? habits[0])}`;
+      }
+      const bestSlot = best && worstHabit && best.window !== worstHabit.preferred_time
+        ? ` Your highest-success window is ${best.window.replace(/_/g, " ")} (${Math.round(best.rate * 100)}%) — shifting "${worstHabit.title}" there could fix this.`
+        : "";
+      return `${whyLine}\n\n"${worstHabit?.title ?? "one habit"}"${rateStr ? ` (${rateStr})` : ""} is the friction point.${bestSlot} Fallback for now: ${worstHabit?.fallback_habit ?? micro}. Want me to draft the change?`;
     }
 
     // ── 11. Motivation / procrastination ──────────────────────────────────
@@ -272,16 +317,20 @@ export class MockProvider implements AIProvider {
 
       if (/when|time|schedul|recommend.*time|best time/.test(msg)) {
         const currentWindow = explicitHabit.preferred_time.replace(/_/g, " ");
+        // Adaptive: use actual completion data to recommend, not generic advice
+        const bestForHabit = best && best.window !== explicitHabit.preferred_time
+          ? ` Based on your data, your highest-success window is ${best.window.replace(/_/g, " ")} (${Math.round(best.rate * 100)}% completion) — shifting "${explicitHabit.title}" there is your best bet.`
+          : "";
         if (s.rate === null) {
-          return `"${explicitHabit.title}" is set for ${currentWindow} — no logs yet, so give it a week there first. Morning tends to have the highest completion for most people since willpower is freshest. If it still feels hard after 5 days, try shifting it.`;
+          return `"${explicitHabit.title}" is set for ${currentWindow} — no logs yet.${bestForHabit || " Give it a week there first. If it still feels hard after 5 days, try shifting it."}`;
         }
-        return `"${explicitHabit.title}" is set for ${currentWindow}. ${
-          s.rate < 0.5
-            ? `Only ${Math.round(s.rate * 100)}% completion — that window likely isn't working. Try shifting it to morning if it isn't already; that's where most people have the highest follow-through. Want to move it?`
-            : s.rate < 0.75
-            ? `${Math.round(s.rate * 100)}% completion — decent but room to improve. If it's in the evening, try moving it earlier before decision fatigue sets in.`
-            : `${rateStr} completion — the ${currentWindow} slot is working. Keep it there.`
-        }`;
+        if (s.rate < 0.5) {
+          return `"${explicitHabit.title}" is at only ${Math.round(s.rate * 100)}% in the ${currentWindow} slot — that window isn't working.${bestForHabit || ` Try moving it to morning (highest willpower) or right after an existing anchor habit.`} Want to shift it?`;
+        }
+        if (s.rate < 0.75) {
+          return `"${explicitHabit.title}" is at ${Math.round(s.rate * 100)}% in ${currentWindow}.${bestForHabit || ` Room to improve — try moving it earlier before decision fatigue sets in.`}`;
+        }
+        return `"${explicitHabit.title}" at ${rateStr} in the ${currentWindow} slot — that's working. Keep it there.`;
       }
       if (/how long|duration|minute/.test(msg)) {
         return `"${explicitHabit.title}" is ${explicitHabit.duration_minutes} minutes. Fallback: ${explicitHabit.fallback_habit ?? "2-minute version"}. ${s.rate !== null && s.rate < 0.5 ? `Low completion suggests the duration is the blocker — want to halve it for a week?` : ""}`;
@@ -293,14 +342,25 @@ export class MockProvider implements AIProvider {
       }
       if (/improve|better|consistent|fix|help with/.test(msg)) {
         if (s.rate === null) {
-          return `No logs yet for "${explicitHabit.title}". Best way to improve: log it today, even if you only do the fallback (${explicitHabit.fallback_habit ?? "2-min version"}). Data first, then I can give you specific advice.`;
+          return `No logs yet for "${explicitHabit.title}". Log it today even as a fallback (${explicitHabit.fallback_habit ?? "2-min version"}) — data first, then I give specific advice.`;
         }
-        const tip = s.rate < 0.5
-          ? `At ${Math.round(s.rate * 100)}% it's struggling — drop duration to ${Math.max(2, Math.round(explicitHabit.duration_minutes / 2))} min for a week and rebuild the streak.`
-          : s.rate < 0.75
-          ? `At ${Math.round(s.rate * 100)}% — solid but not locked in. Try pairing it with something you already do (habit stacking). What comes before or after it naturally?`
-          : `At ${Math.round(s.rate * 100)}% it's strong. Ready to progress? Add ~${Math.round(explicitHabit.duration_minutes * 0.3)} min to the duration.`;
-        return `"${explicitHabit.title}" — ${explicitHabit.preferred_time.replace(/_/g, " ")}, ${explicitHabit.duration_minutes} min. ${tip}`;
+        if (s.rate < 0.5) {
+          const skipStreak = recentSkipStreak(explicitHabit.id, logs);
+          const streakNote = skipStreak >= 3 ? ` (${skipStreak}-day skip streak — frequency reset recommended)` : "";
+          return `"${explicitHabit.title}" is at ${Math.round(s.rate * 100)}%${streakNote}. Use the stepwise rebuild:\n${stepwisePlan(explicitHabit)}${
+            best && best.window !== explicitHabit.preferred_time
+              ? `\n\nAlso shift it to ${best.window.replace(/_/g, " ")} — your ${Math.round(best.rate * 100)}%-success window.`
+              : ""
+          }`;
+        }
+        if (s.rate < 0.75) {
+          const stackTip = `Try pairing "${explicitHabit.title}" with something you already do (habit stacking). What comes right before it in your day?`;
+          const slotTip = best && best.window !== explicitHabit.preferred_time
+            ? `Your ${best.window.replace(/_/g, " ")} slot performs at ${Math.round(best.rate * 100)}% — moving "${explicitHabit.title}" there could close the gap.`
+            : stackTip;
+          return `"${explicitHabit.title}" at ${Math.round(s.rate * 100)}% — solid but not locked in. ${slotTip}`;
+        }
+        return `"${explicitHabit.title}" at ${Math.round(s.rate * 100)}% — strong. Ready to progress? Add ~${Math.round(explicitHabit.duration_minutes * 0.3)} min and bump difficulty one step. Reply "yes" to confirm.`;
       }
       return `"${explicitHabit.title}" — ${explicitHabit.duration_minutes}m, ${explicitHabit.preferred_time.replace(/_/g, " ")}, ${explicitHabit.difficulty} difficulty. Completion: ${rateStr}. Fallback: ${explicitHabit.fallback_habit ?? "—"}. What do you want to change?`;
     }
@@ -384,12 +444,22 @@ export class MockProvider implements AIProvider {
       }, undefined);
       if (worst && habitStats.get(worst.id)!.rate !== null) {
         const s = habitStats.get(worst.id)!;
-        const tip = s.rate! < 0.4
-          ? `Drop it to micro — ${worst.fallback_habit ?? "2-min version"} — for 5 days to rebuild the reflex.`
-          : s.rate! < 0.65
-          ? `Try shifting it to a different time slot. Low completion often means the window is wrong, not the habit.`
-          : `The gap is small — just stay consistent for another week.`;
-        return `Biggest lever: "${worst.title}" at ${Math.round(s.rate! * 100)}%. ${tip}`;
+        const skipStreak = recentSkipStreak(worst.id, logs);
+        const streakNote = skipStreak >= 3 ? ` (${skipStreak}-day skip streak)` : "";
+        const moodNote = moodCorr
+          ? ` Mood pattern: you complete at avg ${moodCorr.completeMoodAvg.toFixed(1)}/5, skip at ${moodCorr.skipMoodAvg.toFixed(1)}/5 — activate fallbacks when mood ≤ ${moodCorr.threshold}.`
+          : "";
+        if (s.rate! < 0.5) {
+          return `Biggest lever: "${worst.title}" at ${Math.round(s.rate! * 100)}%${streakNote}.${moodNote}\n\nStepwise rebuild:\n${stepwisePlan(worst)}${
+            best && best.window !== worst.preferred_time
+              ? `\n\nAlso shift to ${best.window.replace(/_/g, " ")} — your ${Math.round(best.rate * 100)}%-success window.`
+              : ""
+          }`;
+        }
+        const slotTip = best && best.window !== worst.preferred_time
+          ? ` Shift "${worst.title}" to ${best.window.replace(/_/g, " ")} (your ${Math.round(best.rate * 100)}%-success window) to close the gap.`
+          : ` Try pairing "${worst.title}" with an existing anchor — habit stacking closes this gap faster than willpower.`;
+        return `Biggest lever: "${worst.title}" at ${Math.round(s.rate! * 100)}%.${moodNote}${slotTip}`;
       }
       return `Consistency is the main lever. Log every session — even skips. The data tells me where to adjust. What habit feels hardest right now?`;
     }
@@ -416,7 +486,20 @@ export class MockProvider implements AIProvider {
       if (struggling.length > 0) {
         const h = struggling[0];
         const s = habitStats.get(h.id)!;
-        return `"${h.title}" is struggling at ${Math.round(s.rate! * 100)}%. Most common reasons: wrong time slot, duration too long, or too much going on that day. Which of those fits?`;
+        const skipStreak = recentSkipStreak(h.id, logs);
+        // Adaptive: explain WHY using mood correlation and time slot data
+        const whyParts: string[] = [];
+        if (moodCorr) whyParts.push(`mood correlation (you skip at avg ${moodCorr.skipMoodAvg.toFixed(1)}/5 vs complete at ${moodCorr.completeMoodAvg.toFixed(1)}/5)`);
+        if (best && best.window !== h.preferred_time) whyParts.push(`time slot mismatch (your ${best.window.replace(/_/g, " ")} window performs ${Math.round(best.rate * 100)}% vs ${Math.round(s.rate! * 100)}% now)`);
+        if (skipStreak >= 3) whyParts.push(`${skipStreak}-day skip streak building`);
+        const whyLine = whyParts.length
+          ? `Data points to: ${whyParts.join("; ")}.`
+          : `Most common causes: wrong time slot, duration too long, or low-energy days without a fallback.`;
+        return `"${h.title}" at ${Math.round(s.rate! * 100)}% — this is the friction point. ${whyLine}\n\nFix: ${stepwisePlan(h)}`;
+      }
+      // Even with no struggling habits, surface mood pattern if available
+      if (moodCorr) {
+        return `Nothing critically broken, but mood data shows you skip more at avg ${moodCorr.skipMoodAvg.toFixed(1)}/5. On those days, auto-activate fallback mode across all habits rather than skipping entirely.`;
       }
       return `Nothing looks broken from the data. If something feels hard, tell me which habit — I’ll look at the pattern.`;
     }
@@ -555,7 +638,73 @@ export class MockProvider implements AIProvider {
   }
 }
 
-// ---- helpers ----------------------------------------------------
+// ---- adaptive helpers -------------------------------------------
+
+function bestTimeWindow(
+  habits: Habit[],
+  logs: HabitLog[]
+): { window: TimeOfDay; rate: number } | null {
+  const windowStats = new Map<TimeOfDay, { done: number; total: number }>();
+  for (const h of habits) {
+    const hLogs = logs.filter((l) => l.habit_id === h.id);
+    const done = hLogs.filter((l) => l.status === "completed").length;
+    const total = hLogs.filter((l) => l.status === "completed" || l.status === "skipped").length;
+    if (total < 2) continue;
+    const w = windowStats.get(h.preferred_time) ?? { done: 0, total: 0 };
+    w.done += done;
+    w.total += total;
+    windowStats.set(h.preferred_time, w);
+  }
+  const sorted = [...windowStats.entries()]
+    .filter(([, v]) => v.total >= 2)
+    .sort(([, a], [, b]) => b.done / b.total - a.done / a.total);
+  if (!sorted.length) return null;
+  const [window, stats] = sorted[0];
+  return { window, rate: stats.done / stats.total };
+}
+
+function moodHabitCorrelation(
+  logs: HabitLog[]
+): { threshold: number; skipMoodAvg: number; completeMoodAvg: number } | null {
+  const moodedLogs = logs.filter((l) => l.mood !== null);
+  if (moodedLogs.length < 5) return null;
+  const completedMoods = moodedLogs.filter((l) => l.status === "completed").map((l) => l.mood!);
+  const skippedMoods = moodedLogs.filter((l) => l.status === "skipped").map((l) => l.mood!);
+  if (completedMoods.length < 2 || skippedMoods.length < 2) return null;
+  const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const completeMoodAvg = avg(completedMoods);
+  const skipMoodAvg = avg(skippedMoods);
+  if (completeMoodAvg - skipMoodAvg < 0.5) return null; // not significant
+  return {
+    threshold: Math.round(skipMoodAvg + 0.5),
+    skipMoodAvg,
+    completeMoodAvg,
+  };
+}
+
+function recentSkipStreak(habitId: string, logs: HabitLog[]): number {
+  const sorted = logs
+    .filter((l) => l.habit_id === habitId)
+    .sort((a, b) => b.completion_date.localeCompare(a.completion_date));
+  let streak = 0;
+  for (const l of sorted) {
+    if (l.status === "skipped") streak++;
+    else break;
+  }
+  return streak;
+}
+
+function stepwisePlan(habit: Habit): string {
+  const phase1 = Math.max(2, Math.round(habit.duration_minutes * 0.25));
+  const phase2 = Math.max(5, Math.round(habit.duration_minutes * 0.5));
+  return (
+    `Phase 1 (days 1–7): ${phase1} min — just the habit cue + a tiny start. ` +
+    `Phase 2 (days 8–14): ${phase2} min — half the full version. ` +
+    `Phase 3 (day 15+): ${habit.duration_minutes} min — full habit, identity locked in.`
+  );
+}
+
+// ---- habit-creation helper --------------------------------------
 
 function habitAction(msg: string, preferredTime: TimeOfDay): string {
   const g = msg.toLowerCase();
@@ -671,16 +820,32 @@ function habitAction(msg: string, preferredTime: TimeOfDay): string {
       difficulty: "easy",
       fallback_habit: "Sit down to eat — no screens.",
     };
+  } else if (/break|sit(ting)?|desk|pomodoro|every\s*\d+\s*min|screen break|eye|rest.*work|work.*rest/.test(g)) {
+    const mins = g.match(/(\d+)\s*min/)?.[1];
+    const interval = mins ? `every ${mins} minutes` : "every 20 minutes";
+    habit = {
+      title: `Desk break ${interval}`,
+      purpose: "Prevent eye strain and posture fatigue by stepping away from the screen regularly. Improves focus and reduces physical tension from long sitting sessions.",
+      category: "health",
+      frequency: "daily",
+      preferred_time: "any",
+      duration_minutes: 5,
+      difficulty: "easy",
+      fallback_habit: "Stand up, roll your shoulders, look 20 feet away for 20 seconds.",
+    };
   } else {
-    // Generic: extract intent from message
-    const cleaned = g
-      .replace(/\b(add|track|i want to|can you|could you|create|new habit for|start|i'd like to|please)\b/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    const title = cleaned.charAt(0).toUpperCase() + cleaned.slice(1, 50);
+    // Generic: extract only the text AFTER the trigger word to avoid including
+    // preamble like "I am feeling low today, due to work, add a routine that..."
+    const afterTrigger = g.match(
+      /(?:add|track|create|start|i want to (?:add|track|start)|new habit for)\s+(?:a\s+)?(?:routine|habit|practice\s+)?(?:that\s+|where\s+|to\s+)?(.*)/
+    )?.[1] ?? g.replace(/\b(add|track|i want to|can you|could you|create|new habit for|start|i'd like to|please|a routine that|a habit that)\b/g, "").trim();
+
+    // Clean up and title-case
+    const intent = afterTrigger.replace(/\s+/g, " ").trim().slice(0, 60);
+    const title = intent.charAt(0).toUpperCase() + intent.slice(1);
     habit = {
       title: title || "New habit",
-      purpose: `Make steady progress on: ${cleaned}`,
+      purpose: `Build consistency around: ${intent}. Start small — a daily 2-minute version is enough to form the pattern first.`,
       category: "other",
       frequency: "daily",
       preferred_time: preferredTime,
