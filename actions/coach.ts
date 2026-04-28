@@ -136,10 +136,17 @@ export async function sendCoachMessage(input: {
     },
   });
 
+  // When the user sends a bare confirmation ("yes", "ok", etc.), append a silent
+  // instruction so the LLM emits the tag immediately instead of asking again.
+  const isConfirmation = /^(yes|yeah|sure|ok|okay|yep|do it|go ahead|sounds good|add it|create it|let'?s do it|proceed)[!.?\s]*$/i.test(parsed.data.content.trim());
+  const llmUserMessage = isConfirmation
+    ? `${parsed.data.content} [CONFIRMED: emit the HABIT_ACTION or HABIT_EDIT tag for what you proposed in your previous message. Do not ask again.]`
+    : parsed.data.content;
+
   const ai = await getAIProvider();
   const reply = await ai.coachReply({
     history: history ?? [],
-    userMessage: parsed.data.content,
+    userMessage: llmUserMessage,
     profileContext: {
       life_mode: profile?.life_mode ?? "flexible",
       energy_baseline: profile?.energy_baseline ?? "medium",

@@ -322,11 +322,15 @@ function HabitSuggestionCard({
 
   if (state === "added") {
     return (
-      <div className="flex items-center gap-1.5 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs text-success">
-        <Check className="h-3.5 w-3.5 shrink-0" />
-        <span>"{habit.title}" added to your plan.</span>
-        <Link href="/dashboard" className="ml-auto flex items-center gap-1 font-medium underline-offset-2 hover:underline">
-          View Dashboard <ExternalLink className="h-3 w-3" />
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs">
+        <div className="flex items-center gap-1.5 text-success">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium">"{habit.title}" added to your plan.</span>
+        </div>
+        <Link href="/dashboard">
+          <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-xs border-success/40 text-success hover:bg-success/10">
+            View Dashboard <ExternalLink className="h-3 w-3" />
+          </Button>
         </Link>
       </div>
     );
