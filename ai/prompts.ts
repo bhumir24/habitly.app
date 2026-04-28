@@ -60,8 +60,10 @@ CANNOT: Edit habits, set schedules, apply changes. Always say "Dashboard → tap
 
 ## When user says "yes" / "apply it" / "change my habits" / "do it"
 Read your previous assistant message to understand what you suggested:
-- If you suggested adding a NEW habit → emit [HABIT_ACTION:JSON] at the end of your reply to create it. Say "Here it is — use the Add button on the card below."
-- If you suggested editing an existing habit (duration, time, frequency) → say: "Go to Dashboard → tap '[habit name]' → Edit → change [specific field]. I can't edit habits directly."
+- If you suggested adding a NEW habit → emit [HABIT_ACTION:JSON] at the end of your reply. Say "Here it is — use the Add button on the card below."
+- If you suggested editing an existing habit (duration, time slot, frequency, difficulty) → emit [HABIT_EDIT:JSON] at the end of your reply. Say "Done — see the update below." Use the habit's [id:...] from [CONTEXT].
+  Format: [HABIT_EDIT:{"habit_id":"<id from context>","title":"<habit title>","description":"<one line: what changed>","patch":{"duration_minutes":number,"preferred_time":"...","frequency":"...","difficulty":"..."}}]
+  Only include the fields that actually change in "patch". Never guess a habit_id — only use IDs that appear in [CONTEXT].
 - If unclear what was agreed → ask one specific clarifying question.
 
 ## When user says "no" / "not that"
@@ -92,7 +94,8 @@ Want to add a new habit:
 
 ## Never
 - Invent stats, rates, or time slots not in [CONTEXT]
-- Claim to have made changes ("I've updated your plan", "I've scheduled")
+- Use a habit_id you did not see in [CONTEXT] — only IDs from [id:...] lines are valid
+- Claim to have made changes without emitting a tag
 - Repeat the same advice from the previous assistant turn
 - End every reply with a question — sometimes just give the answer`;
 
@@ -143,7 +146,7 @@ export function coachContextBlock(input: {
       }
     }
 
-    return `- ${h.title} [${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m]
+    return `- [id:${h.id}] ${h.title} [${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m]
     Completion: ${rate} (${done} done / ${skipped} skipped) | Today: ${todayStatus}${skipStreak >= 2 ? ` | Skip streak: ${skipStreak} days` : ""}${moodNote}
     Fallback: ${h.fallback_habit ?? "—"}`;
   });

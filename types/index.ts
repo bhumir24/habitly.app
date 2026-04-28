@@ -171,6 +171,19 @@ export interface Subscription {
 
 // ------ AI shapes -------------------------------------------------
 
+export interface HabitEdit {
+  habit_id: string;
+  title: string;
+  description: string;
+  patch: {
+    duration_minutes?: number;
+    preferred_time?: TimeOfDay;
+    frequency?: HabitFrequency;
+    difficulty?: Difficulty;
+    fallback_habit?: string;
+  };
+}
+
 export interface GeneratedHabit {
   title: string;
   purpose: string;

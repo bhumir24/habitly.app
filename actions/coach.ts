@@ -6,8 +6,9 @@ import { coachMessageSchema } from "@/lib/validations";
 import { getAIProvider } from "@/ai/provider";
 import { canUse } from "@/lib/feature-flags";
 import { FREE_LIMITS } from "@/lib/feature-flags";
-import type { Adaptation, GeneratedHabit, Habit, HabitLog } from "@/types";
+import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/types";
 import { deriveAdaptations } from "@/services/adaptation-engine";
+import { updateHabit } from "@/actions/habits";
 
 export async function sendCoachMessage(input: {
   content: string;
@@ -90,23 +91,53 @@ export async function sendCoachMessage(input: {
     blocker: parsed.data.blocker,
   });
 
-  // Parse inline habit suggestion embedded by the AI provider
+  // Parse tags embedded by the AI: [HABIT_ACTION:JSON] and [HABIT_EDIT:JSON]
   let habitSuggestion: GeneratedHabit | undefined;
-  const habitActionMatch = reply.match(/\[HABIT_ACTION:(\{.*\})\]/);
-  const cleanReply = reply.replace(/\s*\[HABIT_ACTION:\{.*\}\]/, "").trim();
+  let habitEdit: HabitEdit | undefined;
+
+  const habitActionMatch = reply.match(/\[HABIT_ACTION:(\{.*?\})\]/s);
+  const habitEditMatch = reply.match(/\[HABIT_EDIT:(\{.*?\})\]/s);
+
+  // Strip both tags from the displayed reply
+  const cleanReply = reply
+    .replace(/\s*\[HABIT_ACTION:\{.*?\}\]/s, "")
+    .replace(/\s*\[HABIT_EDIT:\{.*?\}\]/s, "")
+    .trim();
+
   if (habitActionMatch) {
     try { habitSuggestion = JSON.parse(habitActionMatch[1]) as GeneratedHabit; } catch { /* ignore */ }
+  }
+
+  if (habitEditMatch) {
+    try {
+      const parsed = JSON.parse(habitEditMatch[1]) as HabitEdit;
+      // Security: verify the habit belongs to this user before patching
+      const { data: targetHabit } = await supabase
+        .from("habits")
+        .select("id")
+        .eq("id", parsed.habit_id)
+        .eq("user_id", user.id)
+        .single();
+      if (targetHabit) {
+        await updateHabit(parsed.habit_id, parsed.patch);
+        habitEdit = parsed;
+      }
+    } catch { /* ignore */ }
   }
 
   await supabase.from("coach_messages").insert({
     user_id: user.id,
     role: "assistant",
     content: cleanReply,
-    context: habitSuggestion ? { habitSuggestion } : {},
+    context: {
+      ...(habitSuggestion ? { habitSuggestion } : {}),
+      ...(habitEdit ? { habitEdit } : {}),
+    },
   });
 
   revalidatePath("/coach");
-  return { ok: true as const, reply: cleanReply, habitSuggestion };
+  revalidatePath("/dashboard");
+  return { ok: true as const, reply: cleanReply, habitSuggestion, habitEdit };
 }
 
 export async function suggestAdaptations(): Promise<
