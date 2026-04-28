@@ -40,6 +40,22 @@ export function computeStreak(
   return streak;
 }
 
+function computeHabitStreak(habit: Habit, allLogs: HabitLog[], endDate: Date = new Date()): number {
+  const completedDates = new Set(
+    allLogs
+      .filter((l) => l.habit_id === habit.id && l.status === "completed")
+      .map((l) => l.completion_date)
+  );
+  let streak = 0;
+  for (let i = 0; i < 90; i++) {
+    const d = addDays(endDate, -i);
+    if (!isHabitScheduledToday(habit.frequency, habit.custom_days, d)) continue;
+    if (completedDates.has(toISODate(d))) streak++;
+    else break;
+  }
+  return streak;
+}
+
 export function completionRate(
   habits: Habit[],
   logs: HabitLog[],
@@ -63,7 +79,8 @@ export function completionRate(
 export function buildWeeklySummary(
   habits: Habit[],
   logs: HabitLog[],
-  weekStart: Date = mondayOf()
+  weekStart: Date = mondayOf(),
+  allLogs?: HabitLog[]
 ): WeeklySummary {
   const weekDays: string[] = [];
   for (let i = 0; i < 7; i++) weekDays.push(toISODate(addDays(weekStart, i)));
@@ -72,15 +89,32 @@ export function buildWeeklySummary(
   let totalScheduled = 0;
   let totalCompleted = 0;
   let totalSkipped = 0;
+  let weekdayScheduled = 0;
+  let weekdayCompleted = 0;
+  let weekendScheduled = 0;
+  let weekendCompleted = 0;
 
   for (const day of weekDays) {
     const d = new Date(day + "T12:00:00");
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
     const due = habitsDueToday(habits, d);
-    totalScheduled += due.length;
     const dayLogs = inWeek.filter((l) => l.completion_date === day);
-    totalCompleted += dayLogs.filter((l) => l.status === "completed").length;
+    const completedCount = dayLogs.filter((l) => l.status === "completed").length;
+
+    totalScheduled += due.length;
+    totalCompleted += completedCount;
     totalSkipped += dayLogs.filter((l) => l.status === "skipped").length;
+
+    if (isWeekend) {
+      weekendScheduled += due.length;
+      weekendCompleted += completedCount;
+    } else {
+      weekdayScheduled += due.length;
+      weekdayCompleted += completedCount;
+    }
   }
+
+  const logsForStreak = allLogs ?? logs;
 
   const per_habit = habits.map((h) => {
     const c = inWeek.filter((l) => l.habit_id === h.id && l.status === "completed").length;
@@ -88,9 +122,11 @@ export function buildWeeklySummary(
     return {
       habit_id: h.id,
       title: h.title,
+      category: h.category,
       completed: c,
       skipped: s,
       rate: c + s === 0 ? 0 : c / (c + s),
+      streak: computeHabitStreak(h, logsForStreak),
     };
   });
 
@@ -123,16 +159,23 @@ export function buildWeeklySummary(
     return { date: day, mood: Number(avg.toFixed(2)) };
   });
 
-  const blockerCounts = new Map<string, number>();
+  const excuseKeywords = ["tired", "busy", "forgot", "didn't feel like it", "lazy", "procrastinated", "slept in", "no time", "too hard"];
+  const excuseCounts = new Map<string, number>();
+  const validCounts = new Map<string, number>();
+
   for (const l of inWeek) {
     if (!l.blocker_note) continue;
     const key = l.blocker_note.trim().toLowerCase();
-    blockerCounts.set(key, (blockerCounts.get(key) ?? 0) + 1);
+    const isExcuse = excuseKeywords.some((keyword) => key.includes(keyword));
+    if (isExcuse) {
+      excuseCounts.set(key, (excuseCounts.get(key) ?? 0) + 1);
+    } else {
+      validCounts.set(key, (validCounts.get(key) ?? 0) + 1);
+    }
   }
-  const top_blockers = [...blockerCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([k]) => k);
+
+  const excuses = [...excuseCounts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const valid_blockers = [...validCounts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
 
   const streak_days = weekDays.filter((day) =>
     inWeek.some((l) => l.completion_date === day && l.status === "completed")
@@ -144,11 +187,14 @@ export function buildWeeklySummary(
     total_completed: totalCompleted,
     total_skipped: totalSkipped,
     streak_days,
+    weekday_rate: weekdayScheduled === 0 ? null : weekdayCompleted / weekdayScheduled,
+    weekend_rate: weekendScheduled === 0 ? null : weekendCompleted / weekendScheduled,
     most_skipped,
     best_windows,
     mood_avg,
     mood_trend,
-    top_blockers,
+    valid_blockers,
+    excuses,
     per_habit,
   };
 }

@@ -149,13 +149,18 @@ export interface WeeklySummary {
   best_windows: Array<{ window: TimeOfDay; completion_rate: number }>;
   mood_avg: number | null;
   mood_trend: Array<{ date: string; mood: number }>;
-  top_blockers: string[];
+  valid_blockers: string[];
+  excuses: string[];
+  weekday_rate: number | null;
+  weekend_rate: number | null;
   per_habit: Array<{
     habit_id: string;
     title: string;
+    category?: HabitCategory;
     completed: number;
     skipped: number;
     rate: number;
+    streak?: number;
   }>;
 }
 
