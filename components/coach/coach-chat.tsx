@@ -280,36 +280,41 @@ function HabitSuggestionCard({ habit }: { habit: GeneratedHabit }) {
     setState("added");
   };
 
+  if (state === "added") {
+    return (
+      <div className="flex items-center gap-1.5 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs text-success">
+        <Check className="h-3.5 w-3.5 shrink-0" />
+        <span>"{habit.title}" added to your plan. Check your Dashboard.</span>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border bg-card px-3.5 py-3 shadow-sm">
-      <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-medium">{habit.title}</p>
           <p className="text-xs text-muted-foreground">
             {habit.duration_minutes}m · {habit.preferred_time.replace(/_/g, " ")} · {habit.difficulty}
           </p>
+          {habit.fallback_habit && (
+            <p className="mt-1 text-xs text-muted-foreground">Fallback: {habit.fallback_habit}</p>
+          )}
         </div>
         <Button
           size="sm"
-          variant={state === "added" ? "success" : "default"}
+          variant="default"
           className="h-7 shrink-0 gap-1 px-2 text-xs"
           onClick={handleAdd}
-          disabled={state !== "idle"}
+          disabled={state === "adding"}
         >
           {state === "adding" ? (
             <Loader2 className="h-3 w-3 animate-spin" />
-          ) : state === "added" ? (
-            <><Check className="h-3 w-3" /> Added</>
           ) : (
-            <><Plus className="h-3 w-3" /> Add to plan</>
+            <><Plus className="h-3 w-3" /> Add</>
           )}
         </Button>
       </div>
-      {habit.fallback_habit && (
-        <p className="text-xs text-muted-foreground">
-          Fallback: {habit.fallback_habit}
-        </p>
-      )}
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
   );

@@ -99,9 +99,12 @@ export class MockProvider implements AIProvider {
     const totalLogged = totalDone + totalSkipped;
     const overallRate = totalLogged > 0 ? Math.round((totalDone / totalLogged) * 100) : null;
 
-    const explicitHabit = habits.find(
-      (h) => msg.includes(h.title.toLowerCase()) || msg.includes(h.category.toLowerCase())
-    );
+    const explicitHabit = habits.find((h) => {
+      const title = h.title.toLowerCase();
+      if (msg.includes(title) || msg.includes(h.category.toLowerCase())) return true;
+      // partial word match: "walking" matches "Daily walk", "workout" matches "Workout session"
+      return title.split(/\s+/).some((w) => w.length > 3 && msg.includes(w));
+    });
     const contextHabit = explicitHabit ?? habits[0];
     const micro = contextHabit?.fallback_habit ?? "a 2-minute version of your top habit";
     const lifeMode = input.profileContext.life_mode.replace(/_/g, " ");
@@ -267,16 +270,37 @@ export class MockProvider implements AIProvider {
       const s = habitStats.get(explicitHabit.id)!;
       const rateStr = s.rate !== null ? `${Math.round(s.rate * 100)}%` : "no logs yet";
 
-      if (/when|time|schedul/.test(msg)) {
-        return `"${explicitHabit.title}" is set for ${explicitHabit.preferred_time.replace(/_/g, " ")}. ${s.rate !== null && s.rate < 0.5 ? `Only ${Math.round(s.rate * 100)}% completion — that window might not be working. Want to shift it?` : `Completion is ${rateStr} — the slot seems to be working.`}`;
+      if (/when|time|schedul|recommend.*time|best time/.test(msg)) {
+        const currentWindow = explicitHabit.preferred_time.replace(/_/g, " ");
+        if (s.rate === null) {
+          return `"${explicitHabit.title}" is set for ${currentWindow} — no logs yet, so give it a week there first. Morning tends to have the highest completion for most people since willpower is freshest. If it still feels hard after 5 days, try shifting it.`;
+        }
+        return `"${explicitHabit.title}" is set for ${currentWindow}. ${
+          s.rate < 0.5
+            ? `Only ${Math.round(s.rate * 100)}% completion — that window likely isn't working. Try shifting it to morning if it isn't already; that's where most people have the highest follow-through. Want to move it?`
+            : s.rate < 0.75
+            ? `${Math.round(s.rate * 100)}% completion — decent but room to improve. If it's in the evening, try moving it earlier before decision fatigue sets in.`
+            : `${rateStr} completion — the ${currentWindow} slot is working. Keep it there.`
+        }`;
       }
       if (/how long|duration|minute/.test(msg)) {
-        return `"${explicitHabit.title}" is ${explicitHabit.duration_minutes} minutes. Fallback: ${explicitHabit.fallback_habit ?? "2-minute version"}. ${s.rate !== null && s.rate < 0.5 ? `Low completion rate suggests the duration is the blocker — want to halve it for a week?` : ""}`;
+        return `"${explicitHabit.title}" is ${explicitHabit.duration_minutes} minutes. Fallback: ${explicitHabit.fallback_habit ?? "2-minute version"}. ${s.rate !== null && s.rate < 0.5 ? `Low completion suggests the duration is the blocker — want to halve it for a week?` : ""}`;
       }
       if (/stat|progress|complet|how am i|doing|rate/.test(msg)) {
         const total = s.done + s.skipped;
         if (total === 0) return `No logs yet for "${explicitHabit.title}". Try it today and mark it — that’s the first data point.`;
         return `"${explicitHabit.title}": ${s.done} completed, ${s.skipped} skipped (${rateStr}) over 14 days. ${s.rate! < 0.5 ? `Below 50% — likely too hard or mistimed. Want to adjust?` : s.rate! >= 0.8 ? `Strong. May be ready to progress.` : `Solid middle ground — keep it another week.`}`;
+      }
+      if (/improve|better|consistent|fix|help with/.test(msg)) {
+        if (s.rate === null) {
+          return `No logs yet for "${explicitHabit.title}". Best way to improve: log it today, even if you only do the fallback (${explicitHabit.fallback_habit ?? "2-min version"}). Data first, then I can give you specific advice.`;
+        }
+        const tip = s.rate < 0.5
+          ? `At ${Math.round(s.rate * 100)}% it's struggling — drop duration to ${Math.max(2, Math.round(explicitHabit.duration_minutes / 2))} min for a week and rebuild the streak.`
+          : s.rate < 0.75
+          ? `At ${Math.round(s.rate * 100)}% — solid but not locked in. Try pairing it with something you already do (habit stacking). What comes before or after it naturally?`
+          : `At ${Math.round(s.rate * 100)}% it's strong. Ready to progress? Add ~${Math.round(explicitHabit.duration_minutes * 0.3)} min to the duration.`;
+        return `"${explicitHabit.title}" — ${explicitHabit.preferred_time.replace(/_/g, " ")}, ${explicitHabit.duration_minutes} min. ${tip}`;
       }
       return `"${explicitHabit.title}" — ${explicitHabit.duration_minutes}m, ${explicitHabit.preferred_time.replace(/_/g, " ")}, ${explicitHabit.difficulty} difficulty. Completion: ${rateStr}. Fallback: ${explicitHabit.fallback_habit ?? "—"}. What do you want to change?`;
     }
@@ -322,8 +346,86 @@ export class MockProvider implements AIProvider {
       return `Blocker: "${input.blocker}". Swap "${contextHabit?.title ?? "the affected habit"}" for its fallback today: ${micro}. What would need to change to remove that blocker tomorrow?`;
     }
 
-    // ── 19. Fallback — context-aware, avoids exact repeats ────────────────
-    const alreadyGaveStats = lastCoachMsg.includes("% completion over the last");
+    // ── 19. Acknowledgements (thanks, great, perfect, etc.) ───────────────
+    if (/^(thanks|thank you|thx|ty|great|perfect|awesome|nice|cool|got it|makes sense|ok cool|sounds good|that helps|helpful)[!.?]*$/i.test(msg)) {
+      const lowestAck = habits.find((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate < 0.6;
+      });
+      return lowestAck
+        ? `Anytime. One thing to keep an eye on: "${lowestAck.title}" is at ${Math.round(habitStats.get(lowestAck.id)!.rate! * 100)}% — that’s the next friction point to address.`
+        : `Anytime. Keep logging — consistency compounds. Let me know if anything comes up.`;
+    }
+
+    // ── 20. What should I focus on / what’s most important ────────────────
+    if (/focus|priorit|most important|what (should|do) i (work on|do first|start with)|where (should|do) i (put|spend)|what matters/.test(msg)) {
+      const lowestFocus = habits.find((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate < 0.65;
+      });
+      if (lowestFocus) {
+        const s = habitStats.get(lowestFocus.id)!;
+        return `Focus on "${lowestFocus.title}" — it’s your weakest at ${Math.round(s.rate! * 100)}%. Everything else can hold. Fix the friction there first: either shift the time slot or drop it to its fallback (${lowestFocus.fallback_habit ?? "2-min version"}) for a week to rebuild the streak.`;
+      }
+      const best = [...habits].sort((a, b) => {
+        const sa = habitStats.get(a.id)!, sb = habitStats.get(b.id)!;
+        return (sb.rate ?? 0) - (sa.rate ?? 0);
+      })[0];
+      return `Your habits are all solid right now. If you want to get more from the plan, pick the one you care most about — "${best?.title ?? habits[0].title}" is your strongest — and try progressing it. Reply "progress" and I’ll show you how.`;
+    }
+
+    // ── 21. How can I improve / do better ─────────────────────────────────
+    if (/improve|do better|get better|be more consistent|more consistent|level up|optimize|fix my|what.s wrong|what am i doing wrong/.test(msg)) {
+      const worst = habits.reduce<typeof habits[0] | undefined>((w, h) => {
+        const s = habitStats.get(h.id)!;
+        const ws = w ? habitStats.get(w.id)! : null;
+        if (s.rate === null) return w;
+        return !ws || s.rate < (ws.rate ?? 1) ? h : w;
+      }, undefined);
+      if (worst && habitStats.get(worst.id)!.rate !== null) {
+        const s = habitStats.get(worst.id)!;
+        const tip = s.rate! < 0.4
+          ? `Drop it to micro — ${worst.fallback_habit ?? "2-min version"} — for 5 days to rebuild the reflex.`
+          : s.rate! < 0.65
+          ? `Try shifting it to a different time slot. Low completion often means the window is wrong, not the habit.`
+          : `The gap is small — just stay consistent for another week.`;
+        return `Biggest lever: "${worst.title}" at ${Math.round(s.rate! * 100)}%. ${tip}`;
+      }
+      return `Consistency is the main lever. Log every session — even skips. The data tells me where to adjust. What habit feels hardest right now?`;
+    }
+
+    // ── 22. What’s working / going well ───────────────────────────────────
+    if (/what.s (working|going well|good)|what (is|are) (good|strong|working)|doing well|my best/.test(msg)) {
+      const strong = habits.filter((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate >= 0.75;
+      });
+      if (strong.length > 0) {
+        const lines = strong.map((h) => `"${h.title}" (${Math.round(habitStats.get(h.id)!.rate! * 100)}%)`).join(", ");
+        return `Strong habits: ${lines}. These are your anchors — don’t change what’s working. The question is whether to progress any of them or use that momentum to fix the weaker ones.`;
+      }
+      return `You’re still building momentum — not enough data yet to call anything a strong habit. Keep logging for a week and I’ll have a clearer picture.`;
+    }
+
+    // ── 23. What’s not working / struggling ───────────────────────────────
+    if (/what.s not (working|sticking)|struggling|hard(est)?|difficult|not sticking|problem|issue|why (can.t|don.t|am i not)/.test(msg)) {
+      const struggling = habits.filter((h) => {
+        const s = habitStats.get(h.id);
+        return s?.rate !== null && s!.rate < 0.6;
+      });
+      if (struggling.length > 0) {
+        const h = struggling[0];
+        const s = habitStats.get(h.id)!;
+        return `"${h.title}" is struggling at ${Math.round(s.rate! * 100)}%. Most common reasons: wrong time slot, duration too long, or too much going on that day. Which of those fits?`;
+      }
+      return `Nothing looks broken from the data. If something feels hard, tell me which habit — I’ll look at the pattern.`;
+    }
+
+    // ── 24. Fallback — rotates to avoid exact repeats ─────────────────────
+    const alreadyGaveStats = lastCoachMsg.includes("% completion over the last") || lastCoachMsg.includes("Last 14 days");
+    const alreadyAskedFocus = lastCoachMsg.includes("What would you like to work on") || lastCoachMsg.includes("Ask me");
+    const msgCount = input.history.filter((m) => m.role === "assistant").length;
+
     if (!alreadyGaveStats && overallRate !== null) {
       const lowestHabit = habits.reduce<typeof habits[0] | undefined>((worst, h) => {
         const s = habitStats.get(h.id)!;
@@ -332,14 +434,24 @@ export class MockProvider implements AIProvider {
         return !wS || s.rate < (wS.rate ?? 1) ? h : worst;
       }, undefined);
       const frictionLine = lowestHabit
-        ? `Biggest friction right now: "${lowestHabit.title}" (${Math.round(habitStats.get(lowestHabit.id)!.rate! * 100)}% completion). `
+        ? `Biggest friction: "${lowestHabit.title}" (${Math.round(habitStats.get(lowestHabit.id)!.rate! * 100)}%). `
         : overallRate >= 90 ? `All habits looking strong. ` : "";
       return `You’re at ${overallRate}% completion over the last 14 days. ${frictionLine}What would you like to work on — a specific habit, today’s schedule, or something else?`;
     }
 
-    // Last-resort: give something useful without repeating stats
-    const habitNames = habits.map((h) => `"${h.title}"`).join(", ");
-    return `I’m here to help with your habits (${habitNames}). Ask me what to do today, how you’re doing on a specific habit, how to handle a missed day, or ask me to add a new habit to your plan.`;
+    if (!alreadyAskedFocus) {
+      const habitNames = habits.slice(0, 3).map((h) => `"${h.title}"`).join(", ");
+      return `I can help with ${habitNames}${habits.length > 3 ? " and more" : ""}. Ask me: what to do today, why something isn’t sticking, whether you’re ready to progress, or ask me to add a new habit.`;
+    }
+
+    // True last-resort: vary by message count so it never repeats exactly
+    const lastResorts = [
+      `Try asking: "what should I focus on?" or "what’s not working?" — I’ll give you a specific answer based on your data.`,
+      `Tell me which habit is giving you trouble and I’ll dig into it.`,
+      `Not sure what you’re looking for — are you checking in, trying to add something, or want to adjust your plan?`,
+      `I work best with specific questions. Which habit are you thinking about right now?`,
+    ];
+    return lastResorts[msgCount % lastResorts.length];
   }
 
   async adapt({
@@ -579,7 +691,7 @@ function habitAction(msg: string, preferredTime: TimeOfDay): string {
   }
 
   const tag = `[HABIT_ACTION:${JSON.stringify(habit)}]`;
-  return `I've set up "${habit.title}" for you — ${habit.duration_minutes} min, ${habit.preferred_time.replace(/_/g, " ")}, ${habit.difficulty} difficulty. Hit "+ Add to plan" below to add it. Fallback on tough days: ${habit.fallback_habit}${tag}`;
+  return `Here's "${habit.title}" — ${habit.duration_minutes} min, ${habit.preferred_time.replace(/_/g, " ")}, ${habit.difficulty} difficulty. Fallback on tough days: ${habit.fallback_habit}${tag}`;
 }
 
 function habitForGoal(
