@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Loader2, RefreshCw, Check, Pencil, Trash2, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -131,19 +132,10 @@ export function PlanReview({ initial }: { initial: GeneratedPlan }) {
                     options={DIFFICULTIES.map((f) => ({ v: f.value, l: f.label }))}
                     onChange={(v) => updateHabit(i, { difficulty: v as any })}
                   />
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Duration</div>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={240}
-                      value={h.duration_minutes}
-                      onChange={(e) =>
-                        updateHabit(i, { duration_minutes: Number(e.target.value) })
-                      }
-                      className="h-8"
-                    />
-                  </div>
+                  <DurationField
+                    minutes={h.duration_minutes}
+                    onChange={(minutes) => updateHabit(i, { duration_minutes: minutes })}
+                  />
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -153,7 +145,7 @@ export function PlanReview({ initial }: { initial: GeneratedPlan }) {
                   <Badge variant="secondary" className="capitalize">
                     {h.preferred_time.replace("_", " ")}
                   </Badge>
-                  <Badge variant="secondary">{h.duration_minutes} min</Badge>
+                  <Badge variant="secondary">{formatDuration(h.duration_minutes)}</Badge>
                   <Badge variant="outline" className="capitalize">
                     {h.difficulty}
                   </Badge>
@@ -170,7 +162,10 @@ export function PlanReview({ initial }: { initial: GeneratedPlan }) {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex items-center justify-end gap-2 pt-2">
+      <div className="flex items-center justify-between gap-2 pt-2">
+        <Button variant="ghost" asChild>
+          <Link href="/onboarding">Back to onboarding</Link>
+        </Button>
         <Button onClick={accept} disabled={loading || plan.habits.length === 0}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
           Accept plan & continue
@@ -178,6 +173,58 @@ export function PlanReview({ initial }: { initial: GeneratedPlan }) {
       </div>
     </div>
   );
+}
+
+function DurationField({
+  minutes,
+  onChange,
+}: {
+  minutes: number;
+  onChange: (minutes: number) => void;
+}) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  const update = (nextHours: number, nextMins: number) => {
+    const h = Math.max(0, Math.min(4, nextHours));
+    const m = Math.max(0, Math.min(59, nextMins));
+    const total = h * 60 + m;
+    onChange(Math.max(1, Math.min(240, total)));
+  };
+
+  return (
+    <div>
+      <div className="mb-1 text-xs text-muted-foreground">Duration (hours + mins)</div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          min={0}
+          max={4}
+          value={hours}
+          onChange={(e) => update(Number(e.target.value || 0), mins)}
+          className="h-8"
+        />
+        <span className="text-xs text-muted-foreground">h</span>
+        <Input
+          type="number"
+          min={0}
+          max={59}
+          value={mins}
+          onChange={(e) => update(hours, Number(e.target.value || 0))}
+          className="h-8"
+        />
+        <span className="text-xs text-muted-foreground">m</span>
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
 
 function SelectField({

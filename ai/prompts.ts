@@ -1,3 +1,4 @@
+import type { AIProvider } from "./provider";
 import type {
   CoachMessage,
   Habit,
@@ -114,14 +115,8 @@ Pivot — ask what part doesn't work, suggest something different. Don't restate
 - Invent stats or rates not in [CONTEXT]
 - Say "use the Add button" or "see the card below"`;
 
-export function coachContextBlock(input: {
-  onboarding: OnboardingResponse | null;
-  activeHabits: Habit[];
-  recentLogs: HabitLog[];
-  mood?: number;
-  blocker?: string;
-}) {
-  const { activeHabits, recentLogs, mood, blocker, onboarding } = input;
+export function coachContextBlock(input: Parameters<AIProvider["coachReply"]>[0]) {
+  const { activeHabits, recentLogs, mood, blocker, onboarding, profileContext } = input;
   const today = new Date().toISOString().slice(0, 10);
   const todayLogs = recentLogs.filter((l) => l.completion_date === today);
 
@@ -204,10 +199,21 @@ export function coachContextBlock(input: {
   const overallRate = totalLogged > 0 ? `${Math.round((allDone / totalLogged) * 100)}%` : "no data";
   const todayDone = todayLogs.filter((l) => l.status === "completed").length;
 
+  const rawLifeModes = onboarding?.routine?.life_modes;
+  const lifeModes =
+    Array.isArray(rawLifeModes) && rawLifeModes.length > 0
+      ? rawLifeModes
+      : onboarding?.life_mode
+        ? [onboarding.life_mode]
+        : [];
+  const lifeModeText = lifeModes.length ? lifeModes.map((m) => m.replace(/_/g, " ")).join(", ") : "—";
+  const preferredName = profileContext?.first_name?.trim();
+
   return `[CONTEXT]
+Preferred name (address user by this): ${preferredName ?? "—"}
 Goals: ${onboarding?.goals.join("; ") ?? "—"}
 Blockers from setup: ${onboarding?.blockers.join("; ") || "—"}
-Life mode: ${onboarding?.life_mode ?? "—"} | Energy baseline: ${onboarding?.energy_level ?? "—"}
+Life mode(s): ${lifeModeText} | Energy baseline: ${onboarding?.energy_level ?? "—"}
 Daily availability: ${onboarding?.availability_min ?? "—"} min
 ${mood ? `Current mood: ${mood}/5` : ""}${blocker ? ` | Current blocker: ${blocker}` : ""}
 

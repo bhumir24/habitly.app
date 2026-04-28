@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { HabitCard } from "@/components/habit/habit-card";
+import { CompletionConfetti } from "@/components/habit/completion-confetti";
 import { StatCard } from "@/components/habit/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AdaptationsPanel } from "@/components/habit/adaptations-panel";
@@ -18,9 +19,14 @@ import {
   computeStreak,
 } from "@/services/habit-service";
 import { deriveAdaptations } from "@/services/adaptation-engine";
-import { todayISO } from "@/lib/date";
+import {
+  calendarDateInTimeZone,
+  dayOfWeekForCalendarDate,
+  normalizeTimeZone,
+} from "@/lib/date";
 import type { Habit, HabitLog } from "@/types";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { firstNameFromFullName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +43,7 @@ export default async function DashboardPage() {
     { data: reminders },
     { data: inactiveHabits },
   ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", user.id).single(),
+    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
     supabase
       .from("habits")
       .select("*")
@@ -74,27 +80,37 @@ export default async function DashboardPage() {
 
   const hs = (habits ?? []) as Habit[];
   const ls = (logs ?? []) as HabitLog[];
-  const today = todayISO();
+  const tz = profile?.timezone ?? "UTC";
+  const today = calendarDateInTimeZone(tz);
 
-  const due = habitsDueToday(hs);
+  const due = habitsDueToday(hs, tz);
   const todaysLogs = ls.filter((l) => l.completion_date === today);
   const logByHabit = new Map(todaysLogs.map((l) => [l.habit_id, l]));
   const completedToday = due.filter(
     (h) => logByHabit.get(h.id)?.status === "completed"
   ).length;
 
-  const streak = computeStreak(hs, ls);
-  const weekRate = completionRate(hs, ls, 7);
+  const streak = computeStreak(hs, ls, new Date(), tz);
+  const weekRate = completionRate(hs, ls, 7, tz);
   const adaptations = deriveAdaptations(hs, ls, onboarding ?? null);
-  const pattern = detectPatterns(hs, ls);
+  const pattern = detectPatterns(hs, ls, tz);
 
   const progressPct = due.length > 0 ? Math.round((completedToday / due.length) * 100) : 0;
 
+  const metadataFullName =
+    typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
+  const displayFirstName = firstNameFromFullName(profile?.full_name ?? metadataFullName);
+  const zone = normalizeTimeZone(tz);
+  const subtitle = formatInTimeZone(new Date(), zone, "EEEE, MMM d");
+
   return (
     <div className="space-y-6">
+      <CompletionConfetti completed={completedToday} total={due.length} dateKey={today} />
       <PageHeader
-        title={`${greeting()}${profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}`}
-        subtitle={format(new Date(), "EEEE, MMM d")}
+        title={`${greetingForTimeZone(zone)}${displayFirstName ? `, ${displayFirstName}` : ""}`}
+        subtitle={subtitle}
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -135,7 +151,7 @@ export default async function DashboardPage() {
         {/* ── Left column: habits list ── */}
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Today's habits</h2>
+            <h2 className="text-lg font-semibold">{"Today's habits"}</h2>
             <NewHabitDialog suggestions={(inactiveHabits ?? []) as Habit[]} />
           </div>
 
@@ -182,7 +198,7 @@ export default async function DashboardPage() {
               <Button asChild variant="outline">
                 <Link href="/insights">Weekly insights</Link>
               </Button>
-              <Button asChild variant="ghost">
+              <Button asChild variant="outline">
                 <Link href="/settings">Reminders & preferences</Link>
               </Button>
             </CardContent>
@@ -193,14 +209,21 @@ export default async function DashboardPage() {
   );
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
+function greetingForTimeZone(iana: string) {
+  try {
+    const h = Number(formatInTimeZone(new Date(), iana, "H"));
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  } catch {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  }
 }
 
-function detectPatterns(habits: Habit[], logs: HabitLog[]): PatternData {
+function detectPatterns(habits: Habit[], logs: HabitLog[], timeZone: string): PatternData {
   if (logs.length < 5) {
     return { worstDay: null, bestWindow: null, totalLoggedDays: 0 };
   }
@@ -210,7 +233,7 @@ function detectPatterns(habits: Habit[], logs: HabitLog[]): PatternData {
   const windowMap = new Map<string, { done: number; total: number }>();
 
   for (const l of logs) {
-    const dow = new Date(l.completion_date + "T12:00:00").getDay();
+    const dow = dayOfWeekForCalendarDate(l.completion_date, timeZone);
     if (l.status === "completed") dayBuckets[dow].done++;
     else if (l.status === "skipped") dayBuckets[dow].skipped++;
 

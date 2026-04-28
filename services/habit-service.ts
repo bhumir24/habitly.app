@@ -1,11 +1,20 @@
 // Pure helpers around habit/log collections. DB-agnostic.
 import type { Habit, HabitLog, TimeOfDay, WeeklySummary } from "@/types";
-import { isHabitScheduledToday, mondayOf, toISODate } from "@/lib/date";
+import {
+  calendarDateInTimeZone,
+  isHabitScheduledForCalendarDay,
+  mondayOfCalendarWeekContaining,
+  nextCalendarDay,
+  prevCalendarDay,
+} from "@/lib/date";
 import { addDays } from "date-fns";
 
-export function habitsDueToday(habits: Habit[], date: Date = new Date()) {
+export function habitsDueToday(habits: Habit[], timeZone: string) {
+  const iso = calendarDateInTimeZone(timeZone);
   return habits.filter(
-    (h) => h.is_active && isHabitScheduledToday(h.frequency, h.custom_days, date)
+    (h) =>
+      h.is_active &&
+      isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
   );
 }
 
@@ -22,20 +31,27 @@ export function logsByDate(logs: HabitLog[]) {
 export function computeStreak(
   habits: Habit[],
   logs: HabitLog[],
-  endDate: Date = new Date()
+  endDate: Date = new Date(),
+  timeZone = "UTC"
 ): number {
-  // Days where at least one scheduled habit was completed.
   const byDate = logsByDate(logs);
   let streak = 0;
-  for (let i = 0; i < 365; i++) {
-    const d = addDays(endDate, -i);
-    const iso = toISODate(d);
-    const scheduled = habitsDueToday(habits, d);
-    if (!scheduled.length) continue;
+  let iso = calendarDateInTimeZone(timeZone, endDate);
+  for (let step = 0; step < 365; step++) {
+    const scheduled = habits.filter(
+      (h) =>
+        h.is_active &&
+        isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
+    );
+    if (!scheduled.length) {
+      iso = prevCalendarDay(iso);
+      continue;
+    }
     const dayLogs = byDate.get(iso) ?? [];
     const completedCount = dayLogs.filter((l) => l.status === "completed").length;
     if (completedCount >= 1) streak++;
     else break;
+    iso = prevCalendarDay(iso);
   }
   return streak;
 }
@@ -43,19 +59,30 @@ export function computeStreak(
 export function completionRate(
   habits: Habit[],
   logs: HabitLog[],
-  days: number
+  days: number,
+  timeZone = "UTC"
 ): number {
   let scheduled = 0;
   let completed = 0;
-  const end = new Date();
+  let iso = calendarDateInTimeZone(timeZone);
   for (let i = 0; i < days; i++) {
-    const d = addDays(end, -i);
-    const iso = toISODate(d);
-    const dueIds = new Set(habitsDueToday(habits, d).map((h) => h.id));
+    const dueIds = new Set(
+      habits
+        .filter(
+          (h) =>
+            h.is_active &&
+            isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
+        )
+        .map((h) => h.id)
+    );
     scheduled += dueIds.size;
     completed += logs.filter(
-      (l) => l.completion_date === iso && l.status === "completed" && dueIds.has(l.habit_id)
+      (l) =>
+        l.completion_date === iso &&
+        l.status === "completed" &&
+        dueIds.has(l.habit_id)
     ).length;
+    iso = prevCalendarDay(iso);
   }
   return scheduled === 0 ? 0 : completed / scheduled;
 }
@@ -63,10 +90,20 @@ export function completionRate(
 export function buildWeeklySummary(
   habits: Habit[],
   logs: HabitLog[],
-  weekStart: Date = mondayOf()
+  timeZone: string,
+  options?: { weekMondayISO?: string }
 ): WeeklySummary {
+  const tz = timeZone?.trim() || "UTC";
+  const mondayStr =
+    options?.weekMondayISO ??
+    mondayOfCalendarWeekContaining(calendarDateInTimeZone(tz), tz);
+
   const weekDays: string[] = [];
-  for (let i = 0; i < 7; i++) weekDays.push(toISODate(addDays(weekStart, i)));
+  let d = mondayStr;
+  for (let i = 0; i < 7; i++) {
+    weekDays.push(d);
+    d = nextCalendarDay(d);
+  }
 
   const inWeek = logs.filter((l) => weekDays.includes(l.completion_date));
   let totalScheduled = 0;
@@ -74,8 +111,11 @@ export function buildWeeklySummary(
   let totalSkipped = 0;
 
   for (const day of weekDays) {
-    const d = new Date(day + "T12:00:00");
-    const due = habitsDueToday(habits, d);
+    const due = habits.filter(
+      (h) =>
+        h.is_active &&
+        isHabitScheduledForCalendarDay(h.frequency, h.custom_days, day, tz)
+    );
     totalScheduled += due.length;
     const dayLogs = inWeek.filter((l) => l.completion_date === day);
     totalCompleted += dayLogs.filter((l) => l.status === "completed").length;

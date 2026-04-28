@@ -9,6 +9,7 @@ import { FREE_LIMITS } from "@/lib/feature-flags";
 import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/types";
 import { deriveAdaptations } from "@/services/adaptation-engine";
 import { updateHabit } from "@/actions/habits";
+import { firstNameFromFullName } from "@/lib/utils";
 
 // Finds the start of the JSON object for [TAG_NAME:{...}], skipping optional
 // whitespace between ":" and "{". Returns the index of "{", or -1 if not found.
@@ -171,6 +172,7 @@ export async function sendCoachMessage(input: {
       life_mode: profile?.life_mode ?? "flexible",
       energy_baseline: profile?.energy_baseline ?? "medium",
       timezone: profile?.timezone ?? "UTC",
+      first_name: firstNameFromFullName(profile?.full_name ?? null) ?? undefined,
     },
     onboarding: onboarding ?? null,
     activeHabits,

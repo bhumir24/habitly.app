@@ -65,6 +65,7 @@ export class MockProvider implements AIProvider {
     const moodCorr = moodCorrelation(logs);
     const lastAssistant = [...history].reverse().find((m) => m.role === "assistant")?.content ?? "";
     const msgCount = history.filter((m) => m.role === "assistant").length;
+    const firstName = input.profileContext.first_name?.trim();
 
     // ── Today's status ────────────────────────────────────────────────────
     const orderedToday = sortByTime(habits);
@@ -79,7 +80,8 @@ export class MockProvider implements AIProvider {
     if (/^(hi|hello|hey|good (morning|afternoon|evening)|howdy|sup)[!.?]*$/.test(msg)) {
       const s = stats.overall;
       const rateNote = s.rate !== null ? `You're at ${Math.round(s.rate * 100)}% overall over the last 14 days.` : "No logs yet — today's a great day to start.";
-      return `Hey! ${rateNote} ${completedToday.length}/${habits.length} done today. What do you need?`;
+      const hey = firstName ? `Hey ${firstName}! ` : `Hey! `;
+      return `${hey}${rateNote} ${completedToday.length}/${habits.length} done today. What do you need?`;
     }
 
     // ── Low mood from mood picker ─────────────────────────────────────────

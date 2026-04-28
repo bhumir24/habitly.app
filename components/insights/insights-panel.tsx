@@ -44,7 +44,7 @@ export function InsightsPanel({
         action={
           <Button onClick={run} disabled={isPending}>
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Generate this week's report
+            {"Generate this week's report"}
           </Button>
         }
       />

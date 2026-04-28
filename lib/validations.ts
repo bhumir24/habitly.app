@@ -57,12 +57,13 @@ export const categoryEnum = z.enum([
 ]);
 
 export const onboardingSchema = z.object({
-  goals: z.array(z.string().min(1)).min(1, "Pick at least one goal").max(6),
+  goals: z.array(z.string().min(1)).min(1, "Pick at least one goal").max(10),
   availability_min: z.number().int().min(5).max(240),
   routine: z.object({
     wake: z.string().optional(),
     sleep: z.string().optional(),
     work_block: z.string().optional(),
+    life_modes: z.array(lifeModeEnum).min(1).max(6).optional(),
   }),
   energy_level: energyEnum,
   life_mode: lifeModeEnum,

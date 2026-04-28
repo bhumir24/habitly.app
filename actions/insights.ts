@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { buildWeeklySummary } from "@/services/habit-service";
 import { getAIProvider } from "@/ai/provider";
-import { mondayOf, toISODate } from "@/lib/date";
+import {
+  calendarDateInTimeZone,
+  mondayOfCalendarWeekContaining,
+  nextCalendarDay,
+} from "@/lib/date";
 import type { Habit, HabitLog, WeeklyReport } from "@/types";
 
 export async function generateWeeklyReport(weekStart?: string): Promise<
@@ -15,9 +19,19 @@ export async function generateWeeklyReport(weekStart?: string): Promise<
 
   const supabase = createClient();
 
-  const start = weekStart ? new Date(weekStart) : mondayOf();
-  const startISO = toISODate(start);
-  const endISO = toISODate(new Date(start.getTime() + 6 * 86400e3));
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+  const tz = profile?.timezone ?? "UTC";
+
+  const mondayStr = weekStart
+    ? mondayOfCalendarWeekContaining(weekStart, tz)
+    : mondayOfCalendarWeekContaining(calendarDateInTimeZone(tz), tz);
+  let weekEnd = mondayStr;
+  for (let i = 0; i < 6; i++) weekEnd = nextCalendarDay(weekEnd);
+  const startISO = mondayStr;
 
   const [{ data: habits }, { data: logs }, { data: onboarding }] = await Promise.all([
     supabase.from("habits").select("*").eq("user_id", user.id),
@@ -25,16 +39,14 @@ export async function generateWeeklyReport(weekStart?: string): Promise<
       .from("habit_logs")
       .select("*")
       .eq("user_id", user.id)
-      .gte("completion_date", startISO)
-      .lte("completion_date", endISO),
+      .gte("completion_date", mondayStr)
+      .lte("completion_date", weekEnd),
     supabase.from("onboarding_responses").select("*").eq("user_id", user.id).maybeSingle(),
   ]);
 
-  const summary = buildWeeklySummary(
-    (habits ?? []) as Habit[],
-    (logs ?? []) as HabitLog[],
-    start
-  );
+  const summary = buildWeeklySummary((habits ?? []) as Habit[], (logs ?? []) as HabitLog[], tz, {
+    weekMondayISO: mondayStr,
+  });
 
   const ai = await getAIProvider();
   const { insight, next_step } = await ai.weeklyInsight({

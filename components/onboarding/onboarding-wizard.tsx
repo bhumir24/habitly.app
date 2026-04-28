@@ -27,17 +27,21 @@ import { saveOnboarding } from "@/actions/onboarding";
 type State = {
   goals: string[];
   availability_min: number;
-  routine: { wake?: string; sleep?: string; work_block?: string };
+  routine: { wake?: string; sleep?: string; work_block?: string; life_modes?: LifeMode[] };
   energy_level: EnergyLevel;
-  life_mode: LifeMode;
+  life_modes: LifeMode[];
   preferred_times: TimeOfDay[];
   blockers: string[];
   notes: string;
 };
 
+type WizardInitial = Partial<State> & {
+  life_mode?: LifeMode;
+};
+
 const STEPS = ["Goals", "Time", "Routine", "Energy", "Life mode", "Blockers"];
 
-export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
+export function OnboardingWizard({ initial }: { initial?: WizardInitial }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -47,12 +51,16 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
     availability_min: initial?.availability_min ?? 30,
     routine: initial?.routine ?? { wake: "07:00", sleep: "23:00" },
     energy_level: initial?.energy_level ?? "medium",
-    life_mode: initial?.life_mode ?? "flexible",
+    life_modes:
+      initial?.routine?.life_modes && initial.routine.life_modes.length > 0
+        ? initial.routine.life_modes
+        : [initial?.life_mode ?? "flexible"],
     preferred_times: initial?.preferred_times ?? ["morning"],
     blockers: initial?.blockers ?? [],
     notes: initial?.notes ?? "",
   });
   const [customGoal, setCustomGoal] = useState("");
+  const MAX_GOALS = 10;
 
   const toggle = <T,>(list: T[], v: T): T[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -66,9 +74,9 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
       const res = await saveOnboarding({
         goals: s.goals,
         availability_min: s.availability_min,
-        routine: s.routine,
+        routine: { ...s.routine, life_modes: s.life_modes },
         energy_level: s.energy_level,
-        life_mode: s.life_mode,
+        life_mode: s.life_modes[0] ?? "flexible",
         preferred_times: s.preferred_times,
         blockers: s.blockers,
         notes: s.notes || null,
@@ -87,6 +95,8 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
         return s.goals.length >= 1;
       case 1:
         return s.availability_min >= 5 && s.preferred_times.length >= 1;
+      case 4:
+        return s.life_modes.length >= 1;
       default:
         return true;
     }
@@ -109,14 +119,18 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">What do you want to work on?</h2>
             <p className="text-sm text-muted-foreground">
-              Pick 1–6. Your AI plan starts from these.
+              Pick 1–10. Your AI plan starts from these.
             </p>
             <div className="flex flex-wrap gap-2">
               {GOAL_SUGGESTIONS.map((g) => (
                 <Chip
                   key={g}
                   active={s.goals.includes(g)}
-                  onClick={() => setS({ ...s, goals: toggle(s.goals, g) })}
+                  disabled={!s.goals.includes(g) && s.goals.length >= MAX_GOALS}
+                  onClick={() => {
+                    if (!s.goals.includes(g) && s.goals.length >= MAX_GOALS) return;
+                    setS({ ...s, goals: toggle(s.goals, g) });
+                  }}
                 >
                   {g}
                 </Chip>
@@ -140,6 +154,7 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
                 placeholder="Add your own (e.g. learn Spanish)"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && customGoal.trim()) {
+                    if (s.goals.length >= MAX_GOALS) return;
                     setS({ ...s, goals: [...s.goals, customGoal.trim()] });
                     setCustomGoal("");
                   }
@@ -147,8 +162,10 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
               />
               <Button
                 variant="outline"
+                disabled={s.goals.length >= MAX_GOALS}
                 onClick={() => {
                   if (!customGoal.trim()) return;
+                  if (s.goals.length >= MAX_GOALS) return;
                   setS({ ...s, goals: [...s.goals, customGoal.trim()] });
                   setCustomGoal("");
                 }}
@@ -156,6 +173,11 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
                 Add
               </Button>
             </div>
+            {s.goals.length >= MAX_GOALS && (
+              <p className="text-xs text-muted-foreground">
+                You can select up to {MAX_GOALS} goals.
+              </p>
+            )}
           </div>
         )}
 
@@ -164,7 +186,7 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
             <div>
               <h2 className="text-lg font-semibold">How much time per day?</h2>
               <p className="text-sm text-muted-foreground">
-                Be realistic — we'll never exceed this.
+                {"Be realistic — we'll never exceed this."}
               </p>
               <div className="mt-3 flex items-center gap-3">
                 <input
@@ -250,7 +272,7 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">Your energy baseline</h2>
             <p className="text-sm text-muted-foreground">
-              We'll tune habit difficulty to this.
+              {"We'll tune habit difficulty to this."}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {ENERGY_LEVELS.map((e) => (
@@ -269,14 +291,17 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
         {step === 4 && (
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">Which best describes you?</h2>
+            <p className="text-sm text-muted-foreground">
+              Pick one or more. We will plan for your combined context.
+            </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {LIFE_MODES.map((m) => (
                 <OptionCard
                   key={m.value}
                   title={m.label}
                   hint={m.hint}
-                  active={s.life_mode === m.value}
-                  onClick={() => setS({ ...s, life_mode: m.value })}
+                  active={s.life_modes.includes(m.value)}
+                  onClick={() => setS({ ...s, life_modes: toggle(s.life_modes, m.value) })}
                 />
               ))}
             </div>
@@ -344,21 +369,25 @@ export function OnboardingWizard({ initial }: { initial?: Partial<State> }) {
 function Chip({
   children,
   active,
+  disabled,
   onClick,
 }: {
   children: React.ReactNode;
   active?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         "rounded-full border px-3 py-1.5 text-sm transition",
         active
           ? "border-primary bg-primary/10 text-primary"
-          : "hover:border-foreground/30 hover:bg-accent"
+          : "hover:border-foreground/30 hover:bg-accent",
+        disabled && "cursor-not-allowed opacity-50 hover:border-inherit hover:bg-transparent"
       )}
     >
       {children}

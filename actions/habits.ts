@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { habitSchema, habitLogSchema, type HabitInput } from "@/lib/validations";
 import type { Adaptation } from "@/types";
-import { todayISO } from "@/lib/date";
+import { calendarDateInTimeZone } from "@/lib/date";
 
 export async function logHabit(input: {
   habit_id: string;
@@ -20,7 +20,13 @@ export async function logHabit(input: {
   if (!user) return { ok: false as const, error: "Not authenticated" };
 
   const supabase = createClient();
-  const date = parsed.data.completion_date ?? todayISO();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+  const tz = profile?.timezone ?? "UTC";
+  const date = parsed.data.completion_date ?? calendarDateInTimeZone(tz);
 
   const { error } = await supabase.from("habit_logs").upsert(
     {

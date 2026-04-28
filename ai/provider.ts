@@ -26,6 +26,8 @@ export interface AIProvider {
       life_mode: string;
       energy_baseline: string;
       timezone: string;
+      /** First name from profile full_name — for addressing the user naturally */
+      first_name?: string;
     };
     onboarding: OnboardingResponse | null;
     activeHabits: Habit[];

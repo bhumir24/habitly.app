@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** First word of a full name for greetings and display. */
+export function firstNameFromFullName(name: string | null | undefined): string | null {
+  if (!name?.trim()) return null;
+  const first = name.trim().split(/\s+/)[0];
+  return first || null;
+}
+
 export function initials(name: string | null | undefined): string {
   if (!name) return "U";
   const parts = name.trim().split(/\s+/);

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { cn, initials } from "@/lib/utils";
+import { cn, firstNameFromFullName, initials } from "@/lib/utils";
 import { sendCoachMessage } from "@/actions/coach";
 import { addGeneratedHabit } from "@/actions/habits";
 import type { CoachMessage, GeneratedHabit, HabitEdit } from "@/types";
@@ -108,8 +108,9 @@ export function CoachChat({
 
   const handleSave = () => {
     if (messages.length === 0) return;
+    const displayName = firstNameFromFullName(fullName) ?? "You";
     const lines = messages.map((m) => {
-      const who = m.role === "user" ? (fullName ?? "You") : "Coach";
+      const who = m.role === "user" ? displayName : "Coach";
       const ts = new Date(m.created_at).toLocaleString();
       return `[${ts}] ${who}: ${m.content}`;
     });
@@ -169,7 +170,7 @@ export function CoachChat({
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
         {messages.length === 0 && (
           <div className="mx-auto max-w-md rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-            Say anything — "I'm exhausted today", "help me pick what to skip", or ask for a progression.
+            {`Say anything — "I'm exhausted today", "help me pick what to skip", or ask for a progression.`}
           </div>
         )}
         {messages.map((m) => (
@@ -325,7 +326,7 @@ function HabitSuggestionCard({
       <div className="flex items-center justify-between gap-2 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs">
         <div className="flex items-center gap-1.5 text-success">
           <Check className="h-3.5 w-3.5 shrink-0" />
-          <span className="font-medium">"{habit.title}" added to your plan.</span>
+          <span className="font-medium">{`"${habit.title}" added to your plan.`}</span>
         </div>
         <Link href="/dashboard">
           <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-xs border-success/40 text-success hover:bg-success/10">
@@ -399,7 +400,7 @@ function HabitEditCard({ edit }: { edit: HabitEdit }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
             <Pencil className="h-3.5 w-3.5 shrink-0" />
-            "{edit.title}" {hasChanges ? "updated" : "already in your plan"}
+            {`"${edit.title}"`} {hasChanges ? "updated" : "already in your plan"}
           </div>
           {edit.description && (
             <p className="mt-0.5 text-xs text-muted-foreground">{edit.description}</p>

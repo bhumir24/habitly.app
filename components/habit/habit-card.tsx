@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Clock,
@@ -32,8 +33,10 @@ export function HabitCard({
   habit: Habit;
   log?: HabitLog | null;
 }) {
+  const router = useRouter();
   const [showBlocker, setShowBlocker] = useState(false);
   const [blocker, setBlocker] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const status = log?.status;
 
@@ -41,12 +44,17 @@ export function HabitCard({
   const skipped = status === "skipped";
 
   const handle = (next: "completed" | "skipped") => {
+    setError(null);
     startTransition(async () => {
-      await logHabit({
+      const res = await logHabit({
         habit_id: habit.id,
         status: next,
         blocker_note: next === "skipped" ? blocker || null : null,
       });
+      if (!res.ok) {
+        setError(res.error || "Could not save habit log");
+        return;
+      }
       setShowBlocker(false);
       setBlocker("");
     });
@@ -124,6 +132,7 @@ export function HabitCard({
               </div>
             </div>
           )}
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         </div>
 
         {!showBlocker && (
@@ -134,13 +143,18 @@ export function HabitCard({
               aria-label="Skip"
               onClick={() => setShowBlocker(true)}
               disabled={isPending}
+              className="cursor-pointer"
             >
               <SkipForward className="h-4 w-4" />
             </Button>
-            <Button size="icon" variant="ghost" asChild aria-label="More">
-              <Link href={`/habit/${habit.id}`}>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="More"
+              className="cursor-pointer"
+              onClick={() => router.push(`/habit/${habit.id}`)}
+            >
                 <MoreHorizontal className="h-4 w-4" />
-              </Link>
             </Button>
           </div>
         )}

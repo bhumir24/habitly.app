@@ -231,16 +231,39 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="nh-dur">Duration (minutes)</Label>
-                <Input
-                  id="nh-dur"
-                  type="number"
-                  min={1}
-                  max={240}
-                  value={form.duration_minutes}
-                  onChange={(e) => set("duration_minutes", Math.max(1, Number(e.target.value)))}
-                  className="w-28"
-                />
+                <Label>Duration (hours + mins)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="nh-dur-hours"
+                    type="number"
+                    min={0}
+                    max={4}
+                    value={Math.floor(form.duration_minutes / 60)}
+                    onChange={(e) => {
+                      const hours = Math.max(0, Math.min(4, Number(e.target.value || 0)));
+                      const mins = form.duration_minutes % 60;
+                      const total = Math.max(1, Math.min(240, hours * 60 + mins));
+                      set("duration_minutes", total);
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">h</span>
+                  <Input
+                    id="nh-dur-mins"
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={form.duration_minutes % 60}
+                    onChange={(e) => {
+                      const mins = Math.max(0, Math.min(59, Number(e.target.value || 0)));
+                      const hours = Math.floor(form.duration_minutes / 60);
+                      const total = Math.max(1, Math.min(240, hours * 60 + mins));
+                      set("duration_minutes", total);
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">m</span>
+                </div>
               </div>
 
               <div className="space-y-1.5">

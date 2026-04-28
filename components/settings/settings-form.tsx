@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,43 +17,132 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
+import { getTimezoneSelectOptions } from "@/lib/timezones";
+import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { createClient } from "@/lib/supabase/client";
+import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
+import { revalidateTrackerPages } from "@/actions/revalidate";
+
+const MAX_LIFE_MODES = 2;
 
 export function SettingsForm({
   profile,
   habits,
   reminders,
+  initialLifeModes,
+  onboardingRoutine = {},
+  hasOnboarding = false,
 }: {
   profile: Profile;
   habits: Habit[];
   reminders: Reminder[];
+  initialLifeModes: LifeMode[];
+  onboardingRoutine?: Record<string, unknown>;
+  hasOnboarding?: boolean;
 }) {
   const [p, setP] = useState<Profile>(profile);
+  const [lifeModes, setLifeModes] = useState<LifeMode[]>(() => {
+    const base = initialLifeModes.length ? initialLifeModes : [profile.life_mode];
+    return base.slice(0, MAX_LIFE_MODES);
+  });
   const [rem, setRem] = useState<Reminder[]>(reminders);
+  const [timezoneTouched, setTimezoneTouched] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (timezoneTouched) return;
+    if (p.timezone && p.timezone !== "UTC") return;
+    try {
+      const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (localTz && localTz !== p.timezone) {
+        setP((prev) => ({ ...prev, timezone: localTz }));
+      }
+    } catch {
+      // Ignore Intl availability edge cases.
+    }
+  }, [p.timezone, timezoneTouched]);
+
+  useEffect(() => {
+    setP(profile);
+  }, [profile]);
+
+  const timezoneOptions = useMemo(() => {
+    const base = getTimezoneSelectOptions();
+    if (p.timezone && !base.some((o) => o.value === p.timezone)) {
+      return [{ value: p.timezone, label: `${p.timezone} (current)` }, ...base];
+    }
+    return base;
+  }, [p.timezone]);
+
+  const toggleLifeMode = (v: LifeMode) => {
+    setLifeModes((prev) => {
+      if (prev.includes(v)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((x) => x !== v);
+      }
+      if (prev.length >= MAX_LIFE_MODES) return prev;
+      return [...prev, v];
+    });
+  };
 
   const save = () =>
     startTransition(async () => {
+      setSaveError(null);
       const supabase = createClient();
-      await supabase
+      const primary = lifeModes[0] ?? p.life_mode;
+
+      const { error: profileErr } = await supabase
         .from("profiles")
-        .update({
-          full_name: p.full_name,
-          timezone: p.timezone,
-          life_mode: p.life_mode,
-          energy_baseline: p.energy_baseline,
-        })
-        .eq("id", p.id);
+        .upsert(
+          {
+            id: p.id,
+            full_name: p.full_name,
+            timezone: p.timezone,
+            life_mode: primary,
+            energy_baseline: p.energy_baseline,
+          },
+          { onConflict: "id" }
+        );
+
+      if (profileErr) {
+        setSaveError(profileErr.message);
+        return;
+      }
+
+      if (hasOnboarding) {
+        const modes = lifeModes.length >= 1 ? lifeModes.slice(0, MAX_LIFE_MODES) : [primary];
+        const { error: onboardErr } = await supabase
+          .from("onboarding_responses")
+          .update({
+            routine: { ...onboardingRoutine, life_modes: modes },
+            life_mode: primary,
+          })
+          .eq("user_id", p.id);
+        if (onboardErr) {
+          setSaveError(onboardErr.message);
+          return;
+        }
+      }
+
+      setP((prev) => ({ ...prev, life_mode: primary }));
 
       for (const r of rem) {
-        await supabase
+        const { error: remErr } = await supabase
           .from("reminders")
           .update({ remind_at: r.remind_at, enabled: r.enabled })
           .eq("id", r.id);
+        if (remErr) {
+          setSaveError(remErr.message);
+          return;
+        }
       }
       setSaved(true);
+      await revalidateTrackerPages();
+      router.refresh();
       setTimeout(() => setSaved(false), 1500);
     });
 
@@ -73,30 +163,46 @@ export function SettingsForm({
             />
           </div>
           <div>
-            <Label>Timezone</Label>
-            <Input
+            <Label htmlFor="profile-timezone-input">Timezone</Label>
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Type to search or open the list. Saved timezone drives “today” on your dashboard.
+            </p>
+            <TimezoneCombobox
+              id="profile-timezone-input"
+              options={timezoneOptions}
               value={p.timezone}
-              onChange={(e) => setP({ ...p, timezone: e.target.value })}
-              placeholder="UTC"
+              onSelect={(iana) => {
+                setTimezoneTouched(true);
+                setP({ ...p, timezone: iana });
+              }}
             />
           </div>
-          <div>
+          <div className="md:col-span-2">
             <Label>Life mode</Label>
-            <Select
-              value={p.life_mode}
-              onValueChange={(v) => setP({ ...p, life_mode: v as LifeMode })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LIFE_MODES.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Select up to {MAX_LIFE_MODES} — we use both for coaching context.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {LIFE_MODES.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  disabled={!lifeModes.includes(m.value) && lifeModes.length >= MAX_LIFE_MODES}
+                  onClick={() => toggleLifeMode(m.value)}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-sm transition",
+                    lifeModes.includes(m.value)
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "hover:border-foreground/30 hover:bg-accent",
+                    !lifeModes.includes(m.value) &&
+                      lifeModes.length >= MAX_LIFE_MODES &&
+                      "cursor-not-allowed opacity-50 hover:border-inherit hover:bg-transparent"
+                  )}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
             <Label>Energy baseline</Label>
@@ -169,12 +275,15 @@ export function SettingsForm({
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-col items-end gap-2">
+        {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+        <div className="flex items-center gap-3">
         {saved && <Badge variant="success">Saved</Badge>}
-        <Button onClick={save} disabled={isPending}>
+        <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save
         </Button>
+        </div>
       </div>
     </div>
   );
