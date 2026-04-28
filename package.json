@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed:demo-user": "npx tsx scripts/ensure-demo-user.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.1",

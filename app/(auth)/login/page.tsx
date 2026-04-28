@@ -5,5 +5,6 @@ export default function LoginPage({
 }: {
   searchParams: { next?: string };
 }) {
-  return <AuthForm mode="login" nextPath={searchParams.next} />;
+  const showDemoLogin = process.env.DEMO_LOGIN === "true";
+  return <AuthForm mode="login" nextPath={searchParams.next} showDemoLogin={showDemoLogin} />;
 }
