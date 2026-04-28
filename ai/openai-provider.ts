@@ -51,8 +51,7 @@ export class OpenAIProvider implements AIProvider {
         model: this.model,
         temperature: 0.5,
         messages: [
-          { role: "system", content: COACH_SYSTEM },
-          { role: "system", content: coachContextBlock(input) },
+          { role: "system", content: COACH_SYSTEM + "\n\n" + coachContextBlock(input) },
           ...historyForModel(input.history),
           { role: "user", content: input.userMessage },
         ],
@@ -60,7 +59,8 @@ export class OpenAIProvider implements AIProvider {
       const text = completion.choices[0]?.message?.content?.trim();
       if (!text) throw new Error("empty");
       return text;
-    } catch {
+    } catch (err) {
+      console.error("[OpenAIProvider] coachReply failed:", err);
       return this.fallback.coachReply(input);
     }
   }

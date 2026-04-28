@@ -95,6 +95,52 @@ export class MockProvider implements AIProvider {
         : `High energy. Do every habit in full — no fallbacks today. ${stats.overall.rate !== null ? `You're at ${pct(stats.overall.rate)} overall.` : ""}`;
     }
 
+    // ── Edit existing habit (change/update/make X shorter/longer/to Y) ──────
+    const editIntent = /\b(change|update|edit|modify|set|make)\b.*(habit|workout|walk|run|gym|session|meditation|draw|journal|stretch|breath|water|sleep|reading|reading)/i.test(msg)
+      || /\b(change|update|edit|set|make)\b.*\b(to|at|shorter|longer|faster|earlier|later|\d+\s*min)\b/i.test(msg)
+      || /(shorter|longer|earlier|later|\d+\s*min(utes?)?\s*(a day|daily|instead)?)\s*(instead|please|now)?/.test(msg);
+
+    if (editIntent) {
+      // Find the habit being referenced
+      const STOP_WORDS = new Set(["habit", "every", "minutes", "daily", "session", "break", "walk", "more", "that", "with", "this", "instead", "shorter", "longer"]);
+      const editTarget = habits.find((h) => {
+        const title = h.title.toLowerCase();
+        if (msg.includes(title)) return true;
+        return title.split(/\s+/).some((w) => w.length > 3 && !STOP_WORDS.has(w) && msg.includes(w));
+      });
+
+      if (editTarget) {
+        // Parse new duration
+        const newMins = msg.match(/(\d+)\s*min/)?.[1];
+        // Parse new time
+        const newTime = parseTimeFromMsg(msg);
+        // Parse new frequency
+        const newFreq = /3x|three times|mon.*wed.*fri/.test(msg) ? "3x_week"
+          : /daily|every day/.test(msg) ? "daily"
+          : /weekday/.test(msg) ? "weekdays" : undefined;
+
+        const patch: Record<string, unknown> = {};
+        if (newMins) patch.duration_minutes = parseInt(newMins, 10);
+        if (newTime && newTime !== editTarget.preferred_time) patch.preferred_time = newTime;
+        if (newFreq && newFreq !== editTarget.frequency) patch.frequency = newFreq;
+
+        if (Object.keys(patch).length === 0) {
+          return `"${editTarget.title}" is currently ${editTarget.duration_minutes} min, ${editTarget.preferred_time.replace(/_/g, " ")}, ${editTarget.frequency}. What would you like to change — duration, time, or frequency?`;
+        }
+
+        const desc = [
+          patch.duration_minutes ? `duration to ${patch.duration_minutes} min` : "",
+          patch.preferred_time ? `time to ${String(patch.preferred_time).replace(/_/g, " ")}` : "",
+          patch.frequency ? `frequency to ${String(patch.frequency).replace(/_/g, " ")}` : "",
+        ].filter(Boolean).join(", ");
+
+        const tag = `[HABIT_EDIT:${JSON.stringify({ habit_id: editTarget.id, title: editTarget.title, description: `Updated ${desc}.`, patch })}]`;
+        return `Updated "${editTarget.title}" — ${desc}.${tag}`;
+      }
+      // No matching habit found
+      return `Which habit do you want to change? Your active habits: ${habits.slice(0, 4).map((h) => `"${h.title}"`).join(", ")}${habits.length > 4 ? ` and ${habits.length - 4} more` : ""}.`;
+    }
+
     // ── Want to add a habit ───────────────────────────────────────────────
     if (/\b(add|track|create|new habit)\b.{0,60}$/.test(msg) ||
         /i want to (add|start|track)|add a (habit|routine|practice)/.test(msg)) {
@@ -109,7 +155,7 @@ export class MockProvider implements AIProvider {
       }
       const first = notLoggedToday[0];
       const rest = notLoggedToday.slice(1, 3);
-      return `Start with "${first.title}" — ${first.duration_minutes} min, ${first.preferred_time.replace(/_/g, " ")}.${rest.length ? ` After: ${rest.map((h) => `"${h.title}"`).join(", ")}.` : ""} Fallback if needed: ${first.fallback_habit ?? "2-min version"}.`;
+      return `Start with "${first.title}" — ${first.duration_minutes} min, ${first.preferred_time.replace(/_/g, " ")}.${rest.length ? ` After: ${rest.map((h) => `"${h.title}"`).join(", ")}.` : ""}`;
     }
 
     // ── "Completed X, what's next" ────────────────────────────────────────
@@ -118,26 +164,26 @@ export class MockProvider implements AIProvider {
         return `All habits logged today — ${completedToday.length}/${habits.length} done. You're finished for the day.`;
       }
       const next = notLoggedToday[0];
-      return `Next up: "${next.title}" — ${next.duration_minutes} min, ${next.preferred_time.replace(/_/g, " ")}, ${next.difficulty}. Fallback: ${next.fallback_habit ?? "2-min version"}.`;
+      return `Next up: "${next.title}" — ${next.duration_minutes} min, ${next.preferred_time.replace(/_/g, " ")}, ${next.difficulty}.`;
     }
 
     // ── Busy / no time ────────────────────────────────────────────────────
     if (/no time|too busy|packed|overwhelm/.test(msg)) {
       const micro = notLoggedToday[0] ?? habits[0];
-      return `Busy day — just do the fallback for "${micro?.title ?? "your top habit"}": ${micro?.fallback_habit ?? "2-min version"}. That protects the streak without stealing time.`;
+      return `Busy day — do 2 minutes of "${micro?.title ?? "your top habit"}" to protect the streak.`;
     }
 
     // ── Tired / sore / low energy ─────────────────────────────────────────
     if (/tired|exhaust|drained|no energy|bad sleep|sore|ache/.test(msg)) {
-      const isPhysical = /sore|ache|muscle|gym/.test(msg);
+      const isPhysical = /sore|ache|muscle/.test(msg);
       const movementH = habits.find((h) => h.category === "movement");
       if (isPhysical && movementH) {
-        const rest = habits.filter((h) => h.id !== movementH.id).slice(0, 3).map((h) => `• "${h.title}" → ${h.fallback_habit ?? "2-min"}`).join("\n");
-        return `Physical fatigue = recovery day. Skip "${movementH.title}" — rest is the workout. Everything else on fallback:\n${rest}`;
+        const rest = habits.filter((h) => h.id !== movementH.id).slice(0, 3).map((h) => `• "${h.title}"`).join("\n");
+        return `Physical fatigue = recovery day. Skip "${movementH.title}". Everything else:\n${rest}`;
       }
-      const lines = habits.slice(0, 4).map((h) => `• "${h.title}" → ${h.fallback_habit ?? "2-min version"}`);
+      const lines = habits.slice(0, 4).map((h) => `• "${h.title}" — ${h.duration_minutes > 5 ? "shortened version" : "as-is"}`);
       const whyNote = moodCorr ? ` Data shows you skip more when mood ≤ ${moodCorr.threshold}/5 — today fits that pattern.` : "";
-      return `Low-energy day — activate fallback mode:${whyNote}\n${lines.join("\n")}`;
+      return `Low-energy day — lighter versions only:${whyNote}\n${lines.join("\n")}`;
     }
 
     // ── Missed / skipped / streak broken ─────────────────────────────────
@@ -262,9 +308,11 @@ export class MockProvider implements AIProvider {
     }
 
     // ── Specific habit mentioned ──────────────────────────────────────────
+    const HABIT_STOP_WORDS = new Set(["habit", "every", "minutes", "daily", "session", "break", "more", "that", "with", "this", "instead", "shorter", "longer", "faster"]);
     const namedHabit = habits.find((h) => {
       const title = h.title.toLowerCase();
-      return msg.includes(title) || title.split(/\s+/).some((w) => w.length > 3 && msg.includes(w));
+      if (msg.includes(title)) return true;
+      return title.split(/\s+/).some((w) => w.length > 3 && !HABIT_STOP_WORDS.has(w) && msg.includes(w));
     });
     if (namedHabit) {
       const s = stats.byHabit.get(namedHabit.id)!;
@@ -281,14 +329,14 @@ export class MockProvider implements AIProvider {
       }
       if (/stat|complet|rate|how.*doing|progress/.test(msg)) {
         const streakNote = skipStreak >= 2 ? ` (${skipStreak}-day skip streak)` : "";
-        return `"${namedHabit.title}": ${s.done} done, ${s.skipped} skipped — ${rateStr}${streakNote}. Fallback: ${namedHabit.fallback_habit ?? "—"}.`;
+        return `"${namedHabit.title}": ${s.done} done, ${s.skipped} skipped — ${rateStr}${streakNote}.`;
       }
       if (/improve|fix|help|consistent|better/.test(msg)) {
         if (s.rate === null) return `No logs yet for "${namedHabit.title}". Log it today — even the fallback counts.`;
         if (s.rate < 0.5) return `"${namedHabit.title}" at ${rateStr}${skipStreak >= 2 ? ` (${skipStreak}-day streak)` : ""}.\n\n${stepwisePlan(namedHabit)}`;
         return `"${namedHabit.title}" at ${rateStr} — nearly there. ${best && best.window !== namedHabit.preferred_time ? `Shift to ${best.window.replace(/_/g, " ")} (${pct(best.rate)}) to close the gap.` : "Try habit stacking — pair it with something you already do."}`;
       }
-      return `"${namedHabit.title}" — ${namedHabit.duration_minutes}m, ${namedHabit.preferred_time.replace(/_/g, " ")}, ${namedHabit.difficulty}, ${rateStr}. Fallback: ${namedHabit.fallback_habit ?? "—"}.`;
+      return `"${namedHabit.title}" — ${namedHabit.duration_minutes}m, ${namedHabit.preferred_time.replace(/_/g, " ")}, ${namedHabit.difficulty}${rateStr !== "no logs yet" ? `, ${rateStr}` : ""}. On tough days: ${namedHabit.fallback_habit ?? "2-min version"}.`;
     }
 
     // ── Goals ─────────────────────────────────────────────────────────────
@@ -429,6 +477,16 @@ function stepwisePlan(h: Habit): string {
   const p1 = Math.max(2, Math.round(h.duration_minutes * 0.25));
   const p2 = Math.max(5, Math.round(h.duration_minutes * 0.5));
   return `Phase 1 (days 1–7): ${p1} min. Phase 2 (days 8–14): ${p2} min. Phase 3 (day 15+): ${h.duration_minutes} min — full habit.`;
+}
+
+function parseTimeFromMsg(msg: string): TimeOfDay | undefined {
+  if (/\b(6\s*am|5\s*am|4\s*am|early morning|6am|5am)\b/i.test(msg)) return "early_morning";
+  if (/\b(morning|am\b|wake up|breakfast)\b/i.test(msg)) return "morning";
+  if (/\b(noon|midday|lunch|12\s*pm)\b/i.test(msg)) return "midday";
+  if (/\b(afternoon|2\s*pm|3\s*pm|4\s*pm)\b/i.test(msg)) return "afternoon";
+  if (/\b(evening|6\s*pm|7\s*pm|8\s*pm|after work|dinner)\b/i.test(msg)) return "evening";
+  if (/\b(night|9\s*pm|10\s*pm|11\s*pm|before bed|bedtime)\b/i.test(msg)) return "night";
+  return undefined;
 }
 
 function sortByTime(habits: Habit[]): Habit[] {
