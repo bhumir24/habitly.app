@@ -9,6 +9,7 @@ import { HabitCard } from "@/components/habit/habit-card";
 import { StatCard } from "@/components/habit/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AdaptationsPanel } from "@/components/habit/adaptations-panel";
+import { SuggestedHabitsPanel } from "@/components/habit/suggested-habits-panel";
 import {
   habitsDueToday,
   completionRate,
@@ -26,7 +27,7 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
   const supabase = createClient();
 
-  const [{ data: profile }, { data: habits }, { data: logs }, { data: onboarding }, { data: reminders }] =
+  const [{ data: profile }, { data: habits }, { data: logs }, { data: onboarding }, { data: reminders }, { data: inactiveHabits }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       supabase
@@ -42,6 +43,14 @@ export default async function DashboardPage() {
         .gte("completion_date", new Date(Date.now() - 30 * 86400e3).toISOString().slice(0, 10)),
       supabase.from("onboarding_responses").select("*").eq("user_id", user.id).maybeSingle(),
       supabase.from("reminders").select("*").eq("user_id", user.id).eq("enabled", true),
+      supabase
+        .from("habits")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("is_active", false)
+        .eq("source", "ai")
+        .order("created_at", { ascending: false })
+        .limit(6),
     ]);
 
   const hs = (habits ?? []) as Habit[];
@@ -129,6 +138,8 @@ export default async function DashboardPage() {
 
         <div className="space-y-4">
           {adaptations.length > 0 && <AdaptationsPanel adaptations={adaptations} />}
+
+          <SuggestedHabitsPanel inactive={(inactiveHabits ?? []) as Habit[]} />
 
           <Card>
             <CardHeader>

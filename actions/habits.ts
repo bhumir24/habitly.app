@@ -80,6 +80,48 @@ export async function createHabit(input: HabitInput) {
   return { ok: true as const, id: data!.id };
 }
 
+export async function reactivateHabit(id: string) {
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("habits")
+    .update({ is_active: true })
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (error) return { ok: false as const, error: error.message };
+
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}
+
+export async function addGeneratedHabit(
+  habit: import("@/types").GeneratedHabit
+) {
+  const user = await getSessionUser();
+  if (!user) return { ok: false as const, error: "Not authenticated" };
+
+  const supabase = createClient();
+  const { error } = await supabase.from("habits").insert({
+    user_id: user.id,
+    title: habit.title,
+    purpose: habit.purpose,
+    category: habit.category,
+    frequency: habit.frequency,
+    preferred_time: habit.preferred_time,
+    duration_minutes: habit.duration_minutes,
+    difficulty: habit.difficulty,
+    fallback_habit: habit.fallback_habit,
+    source: "ai",
+    is_active: true,
+  });
+  if (error) return { ok: false as const, error: error.message };
+
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}
+
 export async function applyAdaptation(a: Adaptation) {
   const user = await getSessionUser();
   if (!user) return { ok: false as const, error: "Not authenticated" };
