@@ -579,7 +579,7 @@ function habitAction(msg: string, preferredTime: TimeOfDay): string {
   }
 
   const tag = `[HABIT_ACTION:${JSON.stringify(habit)}]`;
-  return `I've set up "${habit.title}" for you — ${habit.duration_minutes} min, ${habit.preferred_time.replace(/_/g, " ")}, ${habit.difficulty} difficulty. Hit "+ Add to plan" below to add it. Fallback on tough days: ${habit.fallback_habit}${tag}`;
+  return `Here's "${habit.title}" — ${habit.duration_minutes} min, ${habit.preferred_time.replace(/_/g, " ")}, ${habit.difficulty} difficulty. Fallback on tough days: ${habit.fallback_habit}${tag}`;
 }
 
 function habitForGoal(
