@@ -67,7 +67,7 @@ const TITLE_STOP_WORDS = new Set([
 function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
   const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
   const contentWords = (s: string) =>
-    s.split(" ").filter((w) => w.length > 3 && !TITLE_STOP_WORDS.has(w));
+    s.split(" ").filter((w) => w.length >= 3 && !TITLE_STOP_WORDS.has(w));
 
   const t = clean(title);
   const tWords = new Set(contentWords(t));
