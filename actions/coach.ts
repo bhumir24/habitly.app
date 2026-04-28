@@ -10,44 +10,52 @@ import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/t
 import { deriveAdaptations } from "@/services/adaptation-engine";
 import { updateHabit } from "@/actions/habits";
 
-// Extracts the JSON object from [TAG_NAME:{...}] reliably using brace depth,
-// so the regex approach (which breaks on nested/multi-line JSON) is avoided.
-function extractTagJSON(text: string, tagName: string): string | null {
+// Finds the start of the JSON object for [TAG_NAME:{...}], skipping optional
+// whitespace between ":" and "{". Returns the index of "{", or -1 if not found.
+function findTagStart(text: string, tagName: string): { tagStart: number; jsonStart: number } | null {
   const prefix = `[${tagName}:`;
-  const start = text.indexOf(prefix);
-  if (start === -1) return null;
-  let i = start + prefix.length;
-  if (text[i] !== "{") return null;
+  const tagStart = text.indexOf(prefix);
+  if (tagStart === -1) return null;
+  let i = tagStart + prefix.length;
+  // Skip optional whitespace between ":" and "{"
+  while (i < text.length && text[i] !== "{" && /\s/.test(text[i])) i++;
+  if (i >= text.length || text[i] !== "{") return null;
+  return { tagStart, jsonStart: i };
+}
+
+// Extracts the JSON object from [TAG_NAME:{...}] using brace depth tracking.
+function extractTagJSON(text: string, tagName: string): string | null {
+  const pos = findTagStart(text, tagName);
+  if (!pos) return null;
+  let i = pos.jsonStart;
   let depth = 0;
-  const jsonStart = i;
   while (i < text.length) {
     if (text[i] === "{") depth++;
     else if (text[i] === "}") {
       depth--;
-      if (depth === 0) {
-        return text.slice(jsonStart, i + 1);
-      }
+      if (depth === 0) return text.slice(pos.jsonStart, i + 1);
     }
     i++;
   }
   return null;
 }
 
-// Strips [TAG_NAME:{...}] from text, regardless of surrounding whitespace.
+// Removes [TAG_NAME:{...}] (and its closing ]) from displayed text.
 function stripTag(text: string, tagName: string): string {
-  const prefix = `[${tagName}:`;
-  const start = text.indexOf(prefix);
-  if (start === -1) return text;
-  let i = start + prefix.length;
-  if (text[i] !== "{") return text;
+  const pos = findTagStart(text, tagName);
+  if (!pos) return text;
+  let i = pos.jsonStart;
   let depth = 0;
   while (i < text.length) {
     if (text[i] === "{") depth++;
     else if (text[i] === "}") {
       depth--;
       if (depth === 0) {
-        const end = i + 2; // include the closing ]
-        return (text.slice(0, start) + text.slice(end)).replace(/\s{2,}/g, " ").trim();
+        // Skip past the closing "]" that follows the JSON object
+        let end = i + 1;
+        while (end < text.length && /\s/.test(text[end])) end++;
+        if (text[end] === "]") end++;
+        return (text.slice(0, pos.tagStart) + text.slice(end)).replace(/\s{2,}/g, " ").trim();
       }
     }
     i++;
@@ -155,17 +163,10 @@ export async function sendCoachMessage(input: {
     },
   });
 
-  // When the user sends a bare confirmation ("yes", "ok", etc.), append a silent
-  // instruction so the LLM emits the tag immediately instead of asking again.
-  const isConfirmation = /^(yes|yeah|sure|ok|okay|yep|do it|go ahead|sounds good|add it|create it|let'?s do it|proceed)[!.?\s]*$/i.test(parsed.data.content.trim());
-  const llmUserMessage = isConfirmation
-    ? `${parsed.data.content} [CONFIRMED: emit the HABIT_ACTION or HABIT_EDIT tag for what you proposed in your previous message. Do not ask again.]`
-    : parsed.data.content;
-
   const ai = await getAIProvider();
   const reply = await ai.coachReply({
     history: history ?? [],
-    userMessage: llmUserMessage,
+    userMessage: parsed.data.content,
     profileContext: {
       life_mode: profile?.life_mode ?? "flexible",
       energy_baseline: profile?.energy_baseline ?? "medium",
