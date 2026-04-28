@@ -55,18 +55,37 @@ function stripTag(text: string, tagName: string): string {
   return text;
 }
 
-// Checks if any active habit is similar to the suggested title
-// (exact or partial title match, case-insensitive).
+// Generic words that must not count as similarity signal between habit titles.
+const TITLE_STOP_WORDS = new Set([
+  "habit", "new", "called", "named", "every", "minutes", "daily", "session",
+  "just", "some", "that", "this", "with", "want", "track", "practice", "routine",
+  "more", "less", "time", "week", "days", "each", "also", "plan",
+]);
+
+// Checks if any active habit is similar to the suggested title.
+// Only meaningful content words are compared — generic words are ignored.
 function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
-  const t = title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  const contentWords = (s: string) =>
+    s.split(" ").filter((w) => w.length > 3 && !TITLE_STOP_WORDS.has(w));
+
+  const t = clean(title);
+  const tWords = new Set(contentWords(t));
+
+  // If the suggested title has NO meaningful content words, skip duplicate check.
+  if (tWords.size === 0) return undefined;
+
   return habits.find((h) => {
-    const ht = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
-    // exact match, or one contains the other, or >50% word overlap
-    if (ht === t || ht.includes(t) || t.includes(ht)) return true;
-    const tWords = new Set(t.split(" ").filter((w) => w.length > 3));
-    const htWords = ht.split(" ").filter((w) => w.length > 3);
+    const ht = clean(h.title);
+    // Exact title match
+    if (ht === t) return true;
+    // One title is a substring of the other (both non-trivially short)
+    if (t.length > 6 && ht.length > 6 && (ht.includes(t) || t.includes(ht))) return true;
+    // Content-word overlap ≥ 50% of the shorter set
+    const htWords = contentWords(ht);
+    if (htWords.length === 0) return false;
     const overlap = htWords.filter((w) => tWords.has(w)).length;
-    return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.5;
+    return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.6;
   });
 }
 

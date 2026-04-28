@@ -506,40 +506,54 @@ function pct(rate: number): string {
 
 function buildHabitAction(msg: string, preferredTime: TimeOfDay): string {
   const g = msg.toLowerCase();
+
+  // Detect time and duration from the message so we can use them in the habit.
+  const detectedTime: TimeOfDay = parseTimeFromMsg(g) ?? preferredTime;
+  const detectedMins = g.match(/(\d+)\s*min/)?.[1];
+
   let habit: GeneratedHabit;
 
   if (/meditat|mindful|breath|calm|stress|anxiet/.test(g)) {
-    habit = { title: "5-min meditation", purpose: "Anchor focus and reduce stress.", category: "mind", frequency: "daily", preferred_time: preferredTime, duration_minutes: 5, difficulty: "micro", fallback_habit: "10 slow breaths, eyes closed." };
+    habit = { title: "5-min meditation", purpose: "Anchor focus and reduce stress.", category: "mind", frequency: "daily", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 5, difficulty: "micro", fallback_habit: "10 slow breaths, eyes closed." };
   } else if (/gym|workout|exercise|lift|strength|cardio/.test(g)) {
-    habit = { title: "Workout session", purpose: "Build consistent fitness momentum.", category: "movement", frequency: "3x_week", preferred_time: preferredTime, duration_minutes: 30, difficulty: "medium", fallback_habit: "10 squats + 10 push-ups anywhere." };
+    habit = { title: "Workout session", purpose: "Build consistent fitness momentum.", category: "movement", frequency: "3x_week", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 30, difficulty: "medium", fallback_habit: "10 squats + 10 push-ups anywhere." };
+  } else if (/danc|zumba|jumba|salsa|ballet/.test(g)) {
+    habit = { title: "Dance practice", purpose: "Build a fun, consistent movement habit.", category: "movement", frequency: "daily", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 15, difficulty: "easy", fallback_habit: "Freestyle move to one song." };
   } else if (/run|jog/.test(g)) {
-    habit = { title: "Daily run", purpose: "Build cardio endurance.", category: "movement", frequency: "daily", preferred_time: preferredTime, duration_minutes: 20, difficulty: "easy", fallback_habit: "Walk for 10 minutes instead." };
+    habit = { title: "Daily run", purpose: "Build cardio endurance.", category: "movement", frequency: "daily", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 20, difficulty: "easy", fallback_habit: "Walk for 10 minutes instead." };
   } else if (/walk|step|move/.test(g)) {
-    habit = { title: "Daily walk", purpose: "Build baseline movement every day.", category: "movement", frequency: "daily", preferred_time: preferredTime, duration_minutes: 20, difficulty: "easy", fallback_habit: "Walk to the end of the street and back." };
+    habit = { title: "Daily walk", purpose: "Build baseline movement every day.", category: "movement", frequency: "daily", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 20, difficulty: "easy", fallback_habit: "Walk to the end of the street and back." };
   } else if (/read|book|learn|study/.test(g)) {
-    habit = { title: "Read 10 pages", purpose: "Daily learning momentum.", category: "learning", frequency: "daily", preferred_time: "evening", duration_minutes: 15, difficulty: "easy", fallback_habit: "Read one page." };
+    habit = { title: "Read 10 pages", purpose: "Daily learning momentum.", category: "learning", frequency: "daily", preferred_time: detectedTime !== preferredTime ? detectedTime : "evening", duration_minutes: detectedMins ? parseInt(detectedMins) : 15, difficulty: "easy", fallback_habit: "Read one page." };
   } else if (/sleep|bed|wind.?down/.test(g)) {
-    habit = { title: "Wind-down routine", purpose: "Protect a consistent sleep window.", category: "sleep", frequency: "daily", preferred_time: "night", duration_minutes: 10, difficulty: "easy", fallback_habit: "Phone out of bedroom 10 min earlier." };
+    habit = { title: "Wind-down routine", purpose: "Protect a consistent sleep window.", category: "sleep", frequency: "daily", preferred_time: "night", duration_minutes: detectedMins ? parseInt(detectedMins) : 10, difficulty: "easy", fallback_habit: "Phone out of bedroom 10 min earlier." };
   } else if (/water|hydrat|drink/.test(g)) {
-    habit = { title: "3 water breaks", purpose: "Stay hydrated throughout the day.", category: "nutrition", frequency: "daily", preferred_time: "morning", duration_minutes: 2, difficulty: "micro", fallback_habit: "One glass at lunch." };
+    habit = { title: "3 water breaks", purpose: "Stay hydrated throughout the day.", category: "nutrition", frequency: "daily", preferred_time: detectedTime, duration_minutes: 2, difficulty: "micro", fallback_habit: "One glass at lunch." };
   } else if (/journal|write|reflect|diary/.test(g)) {
-    habit = { title: "3-line journal", purpose: "Daily reflection for clarity.", category: "mind", frequency: "daily", preferred_time: "evening", duration_minutes: 5, difficulty: "easy", fallback_habit: "One sentence: 'Today I…'" };
+    habit = { title: "3-line journal", purpose: "Daily reflection for clarity.", category: "mind", frequency: "daily", preferred_time: detectedTime !== preferredTime ? detectedTime : "evening", duration_minutes: detectedMins ? parseInt(detectedMins) : 5, difficulty: "easy", fallback_habit: "One sentence: 'Today I…'" };
   } else if (/stretch|yoga|flexib|mobili/.test(g)) {
-    habit = { title: "Morning stretch", purpose: "Improve mobility and reduce stiffness.", category: "movement", frequency: "daily", preferred_time: "morning", duration_minutes: 10, difficulty: "easy", fallback_habit: "3 neck rolls + 3 shoulder circles." };
+    habit = { title: "Morning stretch", purpose: "Improve mobility and reduce stiffness.", category: "movement", frequency: "daily", preferred_time: detectedTime !== preferredTime ? detectedTime : "morning", duration_minutes: detectedMins ? parseInt(detectedMins) : 10, difficulty: "easy", fallback_habit: "3 neck rolls + 3 shoulder circles." };
   } else if (/phone|screen|social|notif/.test(g)) {
-    habit = { title: "Phone-free first 30 min", purpose: "Protect morning focus.", category: "productivity", frequency: "daily", preferred_time: "morning", duration_minutes: 30, difficulty: "medium", fallback_habit: "Phone face-down for 10 minutes." };
+    habit = { title: "Phone-free first 30 min", purpose: "Protect morning focus.", category: "productivity", frequency: "daily", preferred_time: detectedTime !== preferredTime ? detectedTime : "morning", duration_minutes: detectedMins ? parseInt(detectedMins) : 30, difficulty: "medium", fallback_habit: "Phone face-down for 10 minutes." };
   } else if (/eat|meal|food|cook|nutrition/.test(g)) {
-    habit = { title: "Mindful eating", purpose: "Build a healthier relationship with food.", category: "nutrition", frequency: "daily", preferred_time: "midday", duration_minutes: 5, difficulty: "easy", fallback_habit: "Sit down to eat — no screens." };
+    habit = { title: "Mindful eating", purpose: "Build a healthier relationship with food.", category: "nutrition", frequency: "daily", preferred_time: detectedTime !== preferredTime ? detectedTime : "midday", duration_minutes: detectedMins ? parseInt(detectedMins) : 5, difficulty: "easy", fallback_habit: "Sit down to eat — no screens." };
   } else if (/break|desk|pomodoro|sit(ting)?|eye|screen break/.test(g)) {
-    const mins = g.match(/(\d+)\s*min/)?.[1];
-    habit = { title: `Desk break ${mins ? `every ${mins} min` : "every 20 min"}`, purpose: "Prevent eye strain and posture fatigue.", category: "health", frequency: "daily", preferred_time: "any", duration_minutes: 5, difficulty: "easy", fallback_habit: "Stand up, roll shoulders, look 20 feet away for 20 seconds." };
+    habit = { title: `Desk break ${detectedMins ? `every ${detectedMins} min` : "every 20 min"}`, purpose: "Prevent eye strain and posture fatigue.", category: "health", frequency: "daily", preferred_time: "any", duration_minutes: 5, difficulty: "easy", fallback_habit: "Stand up, roll shoulders, look 20 feet away for 20 seconds." };
   } else {
-    // Extract only the text after the trigger phrase
-    const afterTrigger = g.match(/(?:add|track|create|start|i want to (?:add|track|start)|new habit for)\s+(?:a\s+)?(?:routine|habit|practice\s+)?(?:that\s+|where\s+|to\s+)?(.*)/)?.[1]
-      ?? g.replace(/\b(add|track|i want to|can you|create|new habit for|start|please|a routine that|a habit that)\b/g, "").trim();
-    const intent = afterTrigger.replace(/\s+/g, " ").trim().slice(0, 60);
-    const title = intent.charAt(0).toUpperCase() + intent.slice(1) || "New habit";
-    habit = { title, purpose: `Build consistency around: ${intent}.`, category: "other", frequency: "daily", preferred_time: preferredTime, duration_minutes: 10, difficulty: "easy", fallback_habit: "Do the 2-minute version." };
+    // Extract just the habit name — strip trigger words, time words, and duration.
+    // Pattern: "add new habit called X" / "add X" / "track X" etc.
+    const calledMatch = g.match(/(?:new\s+)?(?:habit|routine|practice)\s+(?:called|named|for)\s+(.+)/);
+    let rawName = calledMatch
+      ? calledMatch[1]
+      : (g.match(/(?:add|track|create|start)\s+(?:new\s+)?(?:a\s+)?(?:habit\s+)?(.+)/)?.[1] ?? g);
+    // Strip duration, time-of-day words, frequency words from the extracted name
+    rawName = rawName
+      .replace(/\b\d+\s*min(utes?)?\b/g, "")
+      .replace(/\b(early morning|morning|midday|afternoon|evening|night|daily|every day|weekday|weekend)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const title = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "New habit";
+    habit = { title, purpose: `Build a consistent ${title.toLowerCase()} habit.`, category: "other", frequency: "daily", preferred_time: detectedTime, duration_minutes: detectedMins ? parseInt(detectedMins) : 10, difficulty: "easy", fallback_habit: "Do the 2-minute version." };
   }
 
   const tag = `[HABIT_ACTION:${JSON.stringify(habit)}]`;
