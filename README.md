@@ -81,6 +81,25 @@ Open `http://localhost:3000` in your browser.
 
 After `npm install`, run `npm run build` once if you want to confirm everything compiles before demos.
 
+### Demo login (optional)
+
+For a shared **demo@habitly.app** account on `/login` (no manual sign-up):
+
+1. Put real project URL + keys in `.env.local` (see above), plus **`SUPABASE_SERVICE_ROLE_KEY`**.
+2. Run **`database/install.sql`** once in the SQL editor if you have not already.
+3. Create the demo user (one-time per project):
+
+   ```bash
+   npm run seed:demo-user
+   ```
+
+4. In **`.env.local`** set **`DEMO_LOGIN=true`**, restart **`npm run dev`**.
+5. Open **`/login`** and click **Continue as demo**.
+
+Default password is **`DemoHabitly2026!`** (override with `DEMO_LOGIN_EMAIL` / `DEMO_LOGIN_PASSWORD` in `.env.local` if you change it).
+
+Do **not** enable `DEMO_LOGIN` on a public production site.
+
 ## Team Usage
 
 - Pull latest changes before starting work: `git pull`

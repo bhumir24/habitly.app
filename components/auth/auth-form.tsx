@@ -7,17 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { login, signUp, type ActionState } from "@/actions/auth";
+import { continueAsDemo, login, signUp, type ActionState } from "@/actions/auth";
 
 export function AuthForm({
   mode,
   nextPath,
+  showDemoLogin = false,
 }: {
   mode: "login" | "signup";
   nextPath?: string;
+  /** When true, show “Continue as demo” (requires DEMO_LOGIN=true and seeded demo user). */
+  showDemoLogin?: boolean;
 }) {
   const action = mode === "login" ? login : signUp;
   const [state, formAction] = useFormState<ActionState, FormData>(action, null);
+  const [demoState, demoAction] = useFormState<ActionState, FormData>(continueAsDemo, null);
 
   return (
     <Card className="w-full max-w-md">
@@ -49,6 +53,23 @@ export function AuthForm({
           )}
           <SubmitBtn label={mode === "login" ? "Log in" : "Create account"} />
         </form>
+
+        {mode === "login" && showDemoLogin && (
+          <div className="mt-6 space-y-3 border-t pt-6">
+            <p className="text-center text-xs text-muted-foreground">Demo account</p>
+            <form action={demoAction} className="space-y-2">
+              {demoState?.error && (
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{demoState.error}</p>
+              )}
+              <SubmitBtn label="Continue as demo" />
+            </form>
+            <p className="text-center text-[11px] text-muted-foreground">
+              demo@habitly.app — run <code className="rounded bg-muted px-1">npx tsx scripts/ensure-demo-user.ts</code> once if
+              this fails.
+            </p>
+          </div>
+        )}
+
         <p className="mt-4 text-center text-sm text-muted-foreground">
           {mode === "login" ? (
             <>

@@ -87,6 +87,41 @@ export async function login(_: ActionState, form: FormData): Promise<ActionState
   redirect(next);
 }
 
+const DEMO_EMAIL_DEFAULT = "demo@habitly.app";
+const DEMO_PASSWORD_DEFAULT = "DemoHabitly2026!";
+
+/** One-click demo session. Only when DEMO_LOGIN=true (local / staging). */
+export async function continueAsDemo(_: ActionState, __: FormData): Promise<ActionState> {
+  if (process.env.DEMO_LOGIN !== "true") {
+    return { error: "Demo login is not enabled on this server." };
+  }
+  const envErr = getSupabaseEnvError();
+  if (envErr) return { error: envErr };
+
+  const email = process.env.DEMO_LOGIN_EMAIL ?? DEMO_EMAIL_DEFAULT;
+  const password = process.env.DEMO_LOGIN_PASSWORD ?? DEMO_PASSWORD_DEFAULT;
+
+  try {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      if (/invalid login|invalid credentials|email not confirmed/i.test(error.message)) {
+        return {
+          error:
+            "Demo user is missing or the password does not match. From the repo root run: npx tsx scripts/ensure-demo-user.ts",
+        };
+      }
+      return { error: error.message };
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: mapAuthNetworkError(msg) };
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
+
 export async function logout() {
   const supabase = createClient();
   await supabase.auth.signOut();
