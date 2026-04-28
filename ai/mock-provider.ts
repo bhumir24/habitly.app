@@ -95,10 +95,21 @@ export class MockProvider implements AIProvider {
         : `High energy. Do every habit in full — no fallbacks today. ${stats.overall.rate !== null ? `You're at ${pct(stats.overall.rate)} overall.` : ""}`;
     }
 
+    // ── Add a habit (must come before edit check) ─────────────────────────
+    const isAddIntent = /\b(add|track|create|new habit)\b/i.test(msg)
+      || /i want to (add|start|track)/i.test(msg)
+      || /add a (habit|routine|practice)/i.test(msg);
+
+    if (isAddIntent) {
+      const preferredTime: TimeOfDay = onboarding?.preferred_times?.[0] ?? "morning";
+      return buildHabitAction(msg, preferredTime);
+    }
+
     // ── Edit existing habit (change/update/make X shorter/longer/to Y) ──────
-    const editIntent = /\b(change|update|edit|modify|set|make)\b.*(habit|workout|walk|run|gym|session|meditation|draw|journal|stretch|breath|water|sleep|reading|reading)/i.test(msg)
+    const editIntent = /\b(change|update|edit|modify|set|make)\b.*(habit|workout|walk|run|gym|session|meditation|draw|journal|stretch|breath|water|sleep|reading)/i.test(msg)
       || /\b(change|update|edit|set|make)\b.*\b(to|at|shorter|longer|faster|earlier|later|\d+\s*min)\b/i.test(msg)
-      || /(shorter|longer|earlier|later|\d+\s*min(utes?)?\s*(a day|daily|instead)?)\s*(instead|please|now)?/.test(msg);
+      || /\b(make|set)\b.*(shorter|longer|earlier|later)/.test(msg)
+      || /\b\d+\s*min(utes?)?\s*(instead|a day)\b/.test(msg);
 
     if (editIntent) {
       // Find the habit being referenced
@@ -139,13 +150,6 @@ export class MockProvider implements AIProvider {
       }
       // No matching habit found
       return `Which habit do you want to change? Your active habits: ${habits.slice(0, 4).map((h) => `"${h.title}"`).join(", ")}${habits.length > 4 ? ` and ${habits.length - 4} more` : ""}.`;
-    }
-
-    // ── Want to add a habit ───────────────────────────────────────────────
-    if (/\b(add|track|create|new habit)\b.{0,60}$/.test(msg) ||
-        /i want to (add|start|track)|add a (habit|routine|practice)/.test(msg)) {
-      const preferredTime: TimeOfDay = onboarding?.preferred_times?.[0] ?? "morning";
-      return buildHabitAction(msg, preferredTime);
     }
 
     // ── "Haven't started" / "help me start" / "what to do today" ─────────
