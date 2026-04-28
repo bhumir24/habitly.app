@@ -176,7 +176,20 @@ export function CoachChat({
           </div>
         )}
         {messages.map((m) => (
-          <Bubble key={m.id} msg={m} fullName={fullName} />
+          <Bubble
+            key={m.id}
+            msg={m}
+            fullName={fullName}
+            onHabitAdded={(id) =>
+              setMessages((prev) =>
+                prev.map((x) =>
+                  x.id === id
+                    ? { ...x, context: { ...x.context, habitAdded: true } }
+                    : x
+                )
+              )
+            }
+          />
         ))}
         {isPending && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -235,11 +248,20 @@ export function CoachChat({
   );
 }
 
-function Bubble({ msg, fullName }: { msg: CoachMessage; fullName: string | null }) {
+function Bubble({
+  msg,
+  fullName,
+  onHabitAdded,
+}: {
+  msg: CoachMessage;
+  fullName: string | null;
+  onHabitAdded: (id: string) => void;
+}) {
   const isUser = msg.role === "user";
   const habitSuggestion = !isUser
     ? (msg.context?.habitSuggestion as GeneratedHabit | undefined)
     : undefined;
+  const alreadyAdded = !!msg.context?.habitAdded;
 
   return (
     <div className={cn("flex items-end gap-2", isUser && "flex-row-reverse")}>
@@ -259,14 +281,30 @@ function Bubble({ msg, fullName }: { msg: CoachMessage; fullName: string | null 
         >
           {msg.content}
         </div>
-        {habitSuggestion && <HabitSuggestionCard habit={habitSuggestion} />}
+        {habitSuggestion && (
+          <HabitSuggestionCard
+            habit={habitSuggestion}
+            initialAdded={alreadyAdded}
+            onAdded={() => onHabitAdded(msg.id)}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function HabitSuggestionCard({ habit }: { habit: GeneratedHabit }) {
-  const [state, setState] = useState<"idle" | "adding" | "added">("idle");
+function HabitSuggestionCard({
+  habit,
+  initialAdded,
+  onAdded,
+}: {
+  habit: GeneratedHabit;
+  initialAdded: boolean;
+  onAdded: () => void;
+}) {
+  const [state, setState] = useState<"idle" | "adding" | "added">(
+    initialAdded ? "added" : "idle"
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = async () => {
@@ -278,6 +316,7 @@ function HabitSuggestionCard({ habit }: { habit: GeneratedHabit }) {
       return;
     }
     setState("added");
+    onAdded();
   };
 
   if (state === "added") {
@@ -292,13 +331,18 @@ function HabitSuggestionCard({ habit }: { habit: GeneratedHabit }) {
   return (
     <div className="rounded-xl border bg-card px-3.5 py-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">{habit.title}</p>
           <p className="text-xs text-muted-foreground">
             {habit.duration_minutes}m · {habit.preferred_time.replace(/_/g, " ")} · {habit.difficulty}
           </p>
+          {habit.purpose && (
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{habit.purpose}</p>
+          )}
           {habit.fallback_habit && (
-            <p className="mt-1 text-xs text-muted-foreground">Fallback: {habit.fallback_habit}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="font-medium">Fallback:</span> {habit.fallback_habit}
+            </p>
           )}
         </div>
         <Button
