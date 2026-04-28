@@ -391,26 +391,30 @@ function HabitEditCard({ edit }: { edit: HabitEdit }) {
     return { label: FIELD_LABELS[key] ?? key, display };
   });
 
+  const hasChanges = changes.length > 0;
+
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
             <Pencil className="h-3.5 w-3.5 shrink-0" />
-            "{edit.title}" updated
+            "{edit.title}" {hasChanges ? "updated" : "already in your plan"}
           </div>
           {edit.description && (
             <p className="mt-0.5 text-xs text-muted-foreground">{edit.description}</p>
           )}
-          <ul className="mt-2 space-y-1">
-            {changes.map(({ label, display }) => (
-              <li key={label} className="flex items-center gap-1.5 text-xs">
-                <Check className="h-3 w-3 text-primary shrink-0" />
-                <span className="text-muted-foreground">{label}:</span>
-                <span className="font-medium">{display}</span>
-              </li>
-            ))}
-          </ul>
+          {hasChanges && (
+            <ul className="mt-2 space-y-1">
+              {changes.map(({ label, display }) => (
+                <li key={label} className="flex items-center gap-1.5 text-xs">
+                  <Check className="h-3 w-3 text-primary shrink-0" />
+                  <span className="text-muted-foreground">{label}:</span>
+                  <span className="font-medium">{display}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <Link href="/dashboard">
           <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 px-2 text-xs">

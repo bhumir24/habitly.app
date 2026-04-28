@@ -190,22 +190,22 @@ export async function sendCoachMessage(input: {
       // If a similar habit already exists, convert to an edit suggestion instead
       const existing = findSimilarHabit(activeHabits, suggested.title);
       if (existing) {
+        const patch: HabitEdit["patch"] = {
+          ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
+          ...(suggested.preferred_time !== existing.preferred_time ? { preferred_time: suggested.preferred_time } : {}),
+          ...(suggested.frequency !== existing.frequency ? { frequency: suggested.frequency } : {}),
+          ...(suggested.difficulty !== existing.difficulty ? { difficulty: suggested.difficulty } : {}),
+        };
+        // Always surface a card so the user sees the habit and gets a Dashboard link,
+        // even if there is nothing to update (patch is empty).
         habitEdit = {
           habit_id: existing.id,
           title: existing.title,
-          description: `"${existing.title}" already exists — updating it based on your request.`,
-          patch: {
-            ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
-            ...(suggested.preferred_time !== existing.preferred_time ? { preferred_time: suggested.preferred_time } : {}),
-            ...(suggested.frequency !== existing.frequency ? { frequency: suggested.frequency } : {}),
-            ...(suggested.difficulty !== existing.difficulty ? { difficulty: suggested.difficulty } : {}),
-          },
+          description: Object.keys(patch).length === 0
+            ? `"${existing.title}" is already in your plan — no changes needed.`
+            : `"${existing.title}" already exists — updating it based on your request.`,
+          patch,
         };
-        // Only apply edit if there's something to change
-        if (Object.keys(habitEdit.patch).length === 0) {
-          habitEdit = undefined;
-          // habit already exists with same settings — just note it
-        }
       } else {
         habitSuggestion = suggested;
       }
@@ -230,8 +230,9 @@ export async function sendCoachMessage(input: {
     } catch { /* ignore */ }
   }
 
-  // Apply auto-converted edit (from duplicate detection above)
-  if (habitEdit && habitActionJSON && !habitEditJSON) {
+  // Apply auto-converted edit (from duplicate detection above).
+  // Skip updateHabit when patch is empty — habit already has the right settings.
+  if (habitEdit && habitActionJSON && !habitEditJSON && Object.keys(habitEdit.patch).length > 0) {
     const result = await updateHabit(habitEdit.habit_id, habitEdit.patch);
     if (!result.ok) habitEdit = undefined;
   }
