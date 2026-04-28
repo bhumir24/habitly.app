@@ -10,6 +10,66 @@ import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/t
 import { deriveAdaptations } from "@/services/adaptation-engine";
 import { updateHabit } from "@/actions/habits";
 
+// Extracts the JSON object from [TAG_NAME:{...}] reliably using brace depth,
+// so the regex approach (which breaks on nested/multi-line JSON) is avoided.
+function extractTagJSON(text: string, tagName: string): string | null {
+  const prefix = `[${tagName}:`;
+  const start = text.indexOf(prefix);
+  if (start === -1) return null;
+  let i = start + prefix.length;
+  if (text[i] !== "{") return null;
+  let depth = 0;
+  const jsonStart = i;
+  while (i < text.length) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        return text.slice(jsonStart, i + 1);
+      }
+    }
+    i++;
+  }
+  return null;
+}
+
+// Strips [TAG_NAME:{...}] from text, regardless of surrounding whitespace.
+function stripTag(text: string, tagName: string): string {
+  const prefix = `[${tagName}:`;
+  const start = text.indexOf(prefix);
+  if (start === -1) return text;
+  let i = start + prefix.length;
+  if (text[i] !== "{") return text;
+  let depth = 0;
+  while (i < text.length) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        const end = i + 2; // include the closing ]
+        return (text.slice(0, start) + text.slice(end)).replace(/\s{2,}/g, " ").trim();
+      }
+    }
+    i++;
+  }
+  return text;
+}
+
+// Checks if any active habit is similar to the suggested title
+// (exact or partial title match, case-insensitive).
+function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
+  const t = title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  return habits.find((h) => {
+    const ht = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+    // exact match, or one contains the other, or >50% word overlap
+    if (ht === t || ht.includes(t) || t.includes(ht)) return true;
+    const tWords = new Set(t.split(" ").filter((w) => w.length > 3));
+    const htWords = ht.split(" ").filter((w) => w.length > 3);
+    const overlap = htWords.filter((w) => tWords.has(w)).length;
+    return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.5;
+  });
+}
+
 export async function sendCoachMessage(input: {
   content: string;
   mood?: number;
@@ -30,7 +90,6 @@ export async function sendCoachMessage(input: {
     .single();
   const tier = sub?.tier ?? "free";
 
-  // Free-tier daily cap.
   if (tier === "free" && !canUse("free", "advanced_coach")) {
     const since = new Date();
     since.setHours(0, 0, 0, 0);
@@ -65,6 +124,8 @@ export async function sendCoachMessage(input: {
     supabase.from("profiles").select("*").eq("id", user.id).single(),
   ]);
 
+  const activeHabits = (habits ?? []) as Habit[];
+
   await supabase.from("coach_messages").insert({
     user_id: user.id,
     role: "user",
@@ -85,45 +146,72 @@ export async function sendCoachMessage(input: {
       timezone: profile?.timezone ?? "UTC",
     },
     onboarding: onboarding ?? null,
-    activeHabits: (habits ?? []) as Habit[],
+    activeHabits,
     recentLogs: (logs ?? []) as HabitLog[],
     mood: parsed.data.mood,
     blocker: parsed.data.blocker,
   });
 
-  // Parse tags embedded by the AI: [HABIT_ACTION:JSON] and [HABIT_EDIT:JSON]
   let habitSuggestion: GeneratedHabit | undefined;
   let habitEdit: HabitEdit | undefined;
 
-  const habitActionMatch = reply.match(/\[HABIT_ACTION:(\{.*?\})\]/s);
-  const habitEditMatch = reply.match(/\[HABIT_EDIT:(\{.*?\})\]/s);
-
-  // Strip both tags from the displayed reply
-  const cleanReply = reply
-    .replace(/\s*\[HABIT_ACTION:\{.*?\}\]/s, "")
-    .replace(/\s*\[HABIT_EDIT:\{.*?\}\]/s, "")
-    .trim();
-
-  if (habitActionMatch) {
-    try { habitSuggestion = JSON.parse(habitActionMatch[1]) as GeneratedHabit; } catch { /* ignore */ }
+  // Parse [HABIT_ACTION:JSON] — new habit suggestion
+  const habitActionJSON = extractTagJSON(reply, "HABIT_ACTION");
+  if (habitActionJSON) {
+    try {
+      const suggested = JSON.parse(habitActionJSON) as GeneratedHabit;
+      // If a similar habit already exists, convert to an edit suggestion instead
+      const existing = findSimilarHabit(activeHabits, suggested.title);
+      if (existing) {
+        habitEdit = {
+          habit_id: existing.id,
+          title: existing.title,
+          description: `"${existing.title}" already exists — updating it based on your request.`,
+          patch: {
+            ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
+            ...(suggested.preferred_time !== existing.preferred_time ? { preferred_time: suggested.preferred_time } : {}),
+            ...(suggested.frequency !== existing.frequency ? { frequency: suggested.frequency } : {}),
+            ...(suggested.difficulty !== existing.difficulty ? { difficulty: suggested.difficulty } : {}),
+          },
+        };
+        // Only apply edit if there's something to change
+        if (Object.keys(habitEdit.patch).length === 0) {
+          habitEdit = undefined;
+          // habit already exists with same settings — just note it
+        }
+      } else {
+        habitSuggestion = suggested;
+      }
+    } catch { /* ignore malformed JSON */ }
   }
 
-  if (habitEditMatch) {
+  // Parse [HABIT_EDIT:JSON] — explicit edit request
+  const habitEditJSON = extractTagJSON(reply, "HABIT_EDIT");
+  if (habitEditJSON && !habitEdit) {
     try {
-      const parsed = JSON.parse(habitEditMatch[1]) as HabitEdit;
-      // Security: verify the habit belongs to this user before patching
+      const editRequest = JSON.parse(habitEditJSON) as HabitEdit;
       const { data: targetHabit } = await supabase
         .from("habits")
         .select("id")
-        .eq("id", parsed.habit_id)
+        .eq("id", editRequest.habit_id)
         .eq("user_id", user.id)
         .single();
       if (targetHabit) {
-        await updateHabit(parsed.habit_id, parsed.patch);
-        habitEdit = parsed;
+        const result = await updateHabit(editRequest.habit_id, editRequest.patch);
+        if (result.ok) habitEdit = editRequest;
       }
     } catch { /* ignore */ }
   }
+
+  // Apply auto-converted edit (from duplicate detection above)
+  if (habitEdit && habitActionJSON && !habitEditJSON) {
+    const result = await updateHabit(habitEdit.habit_id, habitEdit.patch);
+    if (!result.ok) habitEdit = undefined;
+  }
+
+  // Strip both tags from the displayed text
+  let cleanReply = stripTag(reply, "HABIT_ACTION");
+  cleanReply = stripTag(cleanReply, "HABIT_EDIT");
 
   await supabase.from("coach_messages").insert({
     user_id: user.id,

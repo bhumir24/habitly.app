@@ -369,39 +369,48 @@ function HabitSuggestionCard({
 }
 
 function HabitEditCard({ edit }: { edit: HabitEdit }) {
+  const FIELD_LABELS: Record<string, string> = {
+    duration_minutes: "Duration",
+    preferred_time: "Time slot",
+    frequency: "Frequency",
+    difficulty: "Difficulty",
+    fallback_habit: "Fallback",
+  };
+
   const changes = Object.entries(edit.patch).map(([key, val]) => {
-    const label: Record<string, string> = {
-      duration_minutes: "Duration",
-      preferred_time: "Time slot",
-      frequency: "Frequency",
-      difficulty: "Difficulty",
-      fallback_habit: "Fallback",
-    };
-    const display = typeof val === "string" ? val.replace(/_/g, " ") : `${val}${key === "duration_minutes" ? " min" : ""}`;
-    return `${label[key] ?? key} → ${display}`;
+    const display =
+      key === "duration_minutes"
+        ? `${val} min`
+        : typeof val === "string"
+        ? val.replace(/_/g, " ")
+        : String(val);
+    return { label: FIELD_LABELS[key] ?? key, display };
   });
 
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-sm font-medium">
-            <Pencil className="h-3.5 w-3.5 text-primary shrink-0" />
+          <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
+            <Pencil className="h-3.5 w-3.5 shrink-0" />
             "{edit.title}" updated
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{edit.description}</p>
-          <ul className="mt-1.5 space-y-0.5">
-            {changes.map((c) => (
-              <li key={c} className="flex items-center gap-1 text-xs text-muted-foreground">
+          {edit.description && (
+            <p className="mt-0.5 text-xs text-muted-foreground">{edit.description}</p>
+          )}
+          <ul className="mt-2 space-y-1">
+            {changes.map(({ label, display }) => (
+              <li key={label} className="flex items-center gap-1.5 text-xs">
                 <Check className="h-3 w-3 text-primary shrink-0" />
-                {c}
+                <span className="text-muted-foreground">{label}:</span>
+                <span className="font-medium">{display}</span>
               </li>
             ))}
           </ul>
         </div>
         <Link href="/dashboard">
           <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 px-2 text-xs">
-            View <ExternalLink className="h-3 w-3" />
+            Dashboard <ExternalLink className="h-3 w-3" />
           </Button>
         </Link>
       </div>
