@@ -54,12 +54,10 @@ export async function GET(req: Request) {
     byUser.set(r.user_id, list);
   }
 
-  // Fetch emails for users who have at least one email-channel reminder
-  const emailUserIds = [...byUser.entries()]
-    .filter(([, rs]) => rs.some((r) => r.channel === "email"))
-    .map(([uid]) => uid);
+  // Fetch emails for all users with due reminders
+  const allUserIds = [...byUser.keys()];
   const userEmailMap = new Map<string, string>();
-  for (const uid of emailUserIds) {
+  for (const uid of allUserIds) {
     const { data } = await admin.auth.admin.getUserById(uid);
     if (data?.user?.email) userEmailMap.set(uid, data.user.email);
   }
@@ -70,36 +68,31 @@ export async function GET(req: Request) {
   let fired = 0;
 
   for (const [userId, userReminders] of byUser) {
-    const emailReminders = userReminders.filter((r) => r.channel === "email");
-    const inAppReminders = userReminders.filter((r) => r.channel !== "email");
+    const email = userEmailMap.get(userId);
+    const timeStr = userReminders[0].remind_at.slice(0, 5);
+    const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const habitLines = userReminders.map((r) => {
+      const h = habitMap.get(r.habit_id)!;
+      return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
+    });
 
-    // Send one consolidated email for all email-channel habits due at this time
-    if (emailReminders.length > 0) {
-      const email = userEmailMap.get(userId);
-      if (email) {
-        const habitLines = emailReminders
-          .map((r) => {
-            const h = habitMap.get(r.habit_id)!;
-            return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
-          });
-        const timeStr = emailReminders[0].remind_at.slice(0, 5);
-        const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
-        emailReminders.forEach((r) => reminderIds.push(r.id));
-        fired++;
+    if (email) {
+      // Send one consolidated email for all due habits regardless of channel
+      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
+      fired++;
+    } else {
+      // No email address — fall back to console log
+      for (const r of userReminders) {
+        const h = habitMap.get(r.habit_id)!;
+        await consoleChannel.send({
+          to: userId,
+          title: `⏰ Starting in 5 min: ${h.title}`,
+          body: `${h.duration_minutes} min`,
+        });
       }
     }
 
-    // Log in-app reminders to console (real push channel goes here later)
-    for (const r of inAppReminders) {
-      const h = habitMap.get(r.habit_id)!;
-      await consoleChannel.send({
-        to: userId,
-        title: `⏰ Starting in 5 min: ${h.title}`,
-        body: `${h.duration_minutes} min`,
-      });
-      reminderIds.push(r.id);
-    }
+    userReminders.forEach((r) => reminderIds.push(r.id));
   }
 
   // Mark all fired reminders as sent
