@@ -86,7 +86,17 @@ After `npm install`, run `npm run build` once if you want to confirm everything 
 For a shared **demo@habitly.app** account on `/login` (no manual sign-up):
 
 1. Put real project URL + keys in `.env.local` (see above), plus **`SUPABASE_SERVICE_ROLE_KEY`**.
-2. Run **`database/install.sql`** once in the SQL editor if you have not already.
+2. Run these SQL files in the Supabase SQL editor once per project, in this order:
+
+   | File | What it does |
+   |------|-------------|
+   | `database/schema.sql` | Full table schema (habits, logs, profiles, reminders, …) |
+   | `database/policies.sql` | Row-Level Security policies for every table |
+   | `database/push_subscriptions.sql` | `push_subscriptions` table for browser push notifications |
+   | `database/daily_moods.sql` | `daily_moods` table for the dashboard mood check-in |
+   | `database/reminders_dedup.sql` | Removes duplicate reminders + adds `unique(user_id, habit_id)` constraint |
+   | `database/install.sql` | Demo login user setup (only needed for the demo account) |
+   | `database/seed.sql` | Optional demo data |
 3. Create the demo user (one-time per project):
 
    ```bash
