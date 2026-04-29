@@ -16,16 +16,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Monitor } from "lucide-react";
+import { Mail, BellRing } from "lucide-react";
 import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
 import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
-import { PushSubscribeButton } from "@/components/settings/push-subscribe-button";
+import { savePushSubscription } from "@/actions/push";
 
 const MAX_LIFE_MODES = 2;
+
+function urlBase64ToUint8Array(b64: string) {
+  const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+  const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function requestBrowserNotification(): Promise<boolean> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return true;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+    });
+    await savePushSubscription(sub.toJSON());
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function SettingsForm({
   profile,
@@ -212,11 +236,8 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle className="text-base">Reminders</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Set a time and delivery channel for each habit reminder.
+            Choose how you want to be notified for each habit. "Browser" sends a push notification; "Email" sends an email.
           </p>
-          <div className="pt-1">
-            <PushSubscribeButton />
-          </div>
         </CardHeader>
         <CardContent className="space-y-2">
           {rem.length === 0 && (
@@ -244,19 +265,24 @@ export function SettingsForm({
                   <div className="flex rounded-md border overflow-hidden text-xs">
                     <button
                       type="button"
-                      onClick={() =>
-                        setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)))
-                      }
+                      onClick={async () => {
+                        const granted = await requestBrowserNotification();
+                        if (granted) {
+                          setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)));
+                        } else {
+                          alert("Allow notifications in your browser settings, then try again.");
+                        }
+                      }}
                       className={cn(
                         "flex items-center gap-1 px-2.5 py-1.5 transition",
                         r.channel === "in_app"
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:bg-accent"
                       )}
-                      title="In-app notification"
+                      title="Browser push notification"
                     >
-                      <Monitor className="h-3 w-3" />
-                      In-app
+                      <BellRing className="h-3 w-3" />
+                      Browser
                     </button>
                     <button
                       type="button"
@@ -272,7 +298,7 @@ export function SettingsForm({
                       title="Email notification"
                     >
                       <Mail className="h-3 w-3" />
-                      Email notification
+                      Email
                     </button>
                   </div>
                   <Input
