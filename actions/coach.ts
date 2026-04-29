@@ -210,12 +210,13 @@ export async function sendCoachMessage(input: {
         };
         // Always surface a card so the user sees the habit and gets a Dashboard link,
         // even if there is nothing to update (patch is empty).
+        const alreadyNote = `${existing.duration_minutes}m · ${existing.preferred_time.replace(/_/g, " ")} · ${existing.frequency.replace(/_/g, " ")}`;
         habitEdit = {
           habit_id: existing.id,
           title: existing.title,
           description: Object.keys(patch).length === 0
-            ? `"${existing.title}" is already in your plan — no changes needed.`
-            : `"${existing.title}" already exists — updating it based on your request.`,
+            ? `Already in your plan — ${alreadyNote}. View or edit it on the dashboard.`
+            : `Already exists (${alreadyNote}) — updating based on your request.`,
           patch,
         };
       } else {
