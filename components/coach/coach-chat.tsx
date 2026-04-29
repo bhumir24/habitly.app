@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Send, Bot, Loader2, Download, Trash2, Plus, Check } from "lucide-react";
+import Link from "next/link";
+import { Send, Bot, Loader2, Download, Trash2, Plus, Check, Pencil, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { cn, initials } from "@/lib/utils";
+import { cn, firstNameFromFullName, initials } from "@/lib/utils";
 import { sendCoachMessage } from "@/actions/coach";
 import { addGeneratedHabit } from "@/actions/habits";
-import type { CoachMessage, GeneratedHabit } from "@/types";
+import type { CoachMessage, GeneratedHabit, HabitEdit } from "@/types";
 
 const MOODS = [
   { v: 1, label: "😞" },
@@ -35,12 +36,8 @@ export function CoachChat({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Tracks whether the mount-restore effect has already run, so the save
-  // effect skips the very first render and doesn't overwrite stored data.
   const hasMountedRef = useRef(false);
 
-  // On mount: restore messages from sessionStorage.
-  // Chat only resets when the user clicks Clear — not on navigation or reload.
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY);
@@ -51,9 +48,6 @@ export function CoachChat({
     } catch { /* ignore */ }
   }, []);
 
-  // Save to sessionStorage whenever messages change.
-  // Skip the very first render so we don't overwrite storage with the
-  // empty initialMessages before the restore effect has had a chance to run.
   useEffect(() => {
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
@@ -100,7 +94,10 @@ export function CoachChat({
           user_id: "me",
           role: "assistant",
           content: res.reply,
-          context: res.habitSuggestion ? { habitSuggestion: res.habitSuggestion } : {},
+          context: {
+            ...(res.habitSuggestion ? { habitSuggestion: res.habitSuggestion } : {}),
+            ...(res.habitEdit ? { habitEdit: res.habitEdit } : {}),
+          },
           created_at: new Date().toISOString(),
         },
       ]);
@@ -111,8 +108,9 @@ export function CoachChat({
 
   const handleSave = () => {
     if (messages.length === 0) return;
+    const displayName = firstNameFromFullName(fullName) ?? "You";
     const lines = messages.map((m) => {
-      const who = m.role === "user" ? (fullName ?? "You") : "Coach";
+      const who = m.role === "user" ? displayName : "Coach";
       const ts = new Date(m.created_at).toLocaleString();
       return `[${ts}] ${who}: ${m.content}`;
     });
@@ -172,7 +170,7 @@ export function CoachChat({
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
         {messages.length === 0 && (
           <div className="mx-auto max-w-md rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-            Say anything — "I'm exhausted today", "help me pick what to skip", or ask for a progression.
+            {`Say anything — "I'm exhausted today", "help me pick what to skip", or ask for a progression.`}
           </div>
         )}
         {messages.map((m) => (
@@ -261,6 +259,9 @@ function Bubble({
   const habitSuggestion = !isUser
     ? (msg.context?.habitSuggestion as GeneratedHabit | undefined)
     : undefined;
+  const habitEdit = !isUser
+    ? (msg.context?.habitEdit as HabitEdit | undefined)
+    : undefined;
   const alreadyAdded = !!msg.context?.habitAdded;
 
   return (
@@ -288,6 +289,7 @@ function Bubble({
             onAdded={() => onHabitAdded(msg.id)}
           />
         )}
+        {habitEdit && <HabitEditCard edit={habitEdit} />}
       </div>
     </div>
   );
@@ -321,9 +323,16 @@ function HabitSuggestionCard({
 
   if (state === "added") {
     return (
-      <div className="flex items-center gap-1.5 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs text-success">
-        <Check className="h-3.5 w-3.5 shrink-0" />
-        <span>"{habit.title}" added to your plan. Check your Dashboard.</span>
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-success/30 bg-success/5 px-3.5 py-2 text-xs">
+        <div className="flex items-center gap-1.5 text-success">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium">{`"${habit.title}" added to your plan.`}</span>
+        </div>
+        <Link href="/dashboard">
+          <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-xs border-success/40 text-success hover:bg-success/10">
+            View Dashboard <ExternalLink className="h-3 w-3" />
+          </Button>
+        </Link>
       </div>
     );
   }
@@ -360,6 +369,60 @@ function HabitSuggestionCard({
         </Button>
       </div>
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function HabitEditCard({ edit }: { edit: HabitEdit }) {
+  const FIELD_LABELS: Record<string, string> = {
+    duration_minutes: "Duration",
+    preferred_time: "Time slot",
+    frequency: "Frequency",
+    difficulty: "Difficulty",
+    fallback_habit: "Fallback",
+  };
+
+  const changes = Object.entries(edit.patch).map(([key, val]) => {
+    const display =
+      key === "duration_minutes"
+        ? `${val} min`
+        : typeof val === "string"
+        ? val.replace(/_/g, " ")
+        : String(val);
+    return { label: FIELD_LABELS[key] ?? key, display };
+  });
+
+  const hasChanges = changes.length > 0;
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
+            <Pencil className="h-3.5 w-3.5 shrink-0" />
+            {`"${edit.title}"`} {hasChanges ? "updated" : "already in your plan"}
+          </div>
+          {edit.description && (
+            <p className="mt-0.5 text-xs text-muted-foreground">{edit.description}</p>
+          )}
+          {hasChanges && (
+            <ul className="mt-2 space-y-1">
+              {changes.map(({ label, display }) => (
+                <li key={label} className="flex items-center gap-1.5 text-xs">
+                  <Check className="h-3 w-3 text-primary shrink-0" />
+                  <span className="text-muted-foreground">{label}:</span>
+                  <span className="font-medium">{display}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <Link href="/dashboard">
+          <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 px-2 text-xs">
+            Dashboard <ExternalLink className="h-3 w-3" />
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }

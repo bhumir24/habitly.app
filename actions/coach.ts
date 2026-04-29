@@ -6,8 +6,116 @@ import { coachMessageSchema } from "@/lib/validations";
 import { getAIProvider } from "@/ai/provider";
 import { canUse } from "@/lib/feature-flags";
 import { FREE_LIMITS } from "@/lib/feature-flags";
-import type { Adaptation, GeneratedHabit, Habit, HabitLog } from "@/types";
+import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/types";
 import { deriveAdaptations } from "@/services/adaptation-engine";
+import { updateHabit } from "@/actions/habits";
+import { firstNameFromFullName } from "@/lib/utils";
+
+// Finds the start of the JSON object for [TAG_NAME:{...}], skipping optional
+// whitespace between ":" and "{". Returns the index of "{", or -1 if not found.
+function findTagStart(text: string, tagName: string): { tagStart: number; jsonStart: number } | null {
+  const prefix = `[${tagName}:`;
+  const tagStart = text.indexOf(prefix);
+  if (tagStart === -1) return null;
+  let i = tagStart + prefix.length;
+  // Skip optional whitespace between ":" and "{"
+  while (i < text.length && text[i] !== "{" && /\s/.test(text[i])) i++;
+  if (i >= text.length || text[i] !== "{") return null;
+  return { tagStart, jsonStart: i };
+}
+
+// Extracts the JSON object from [TAG_NAME:{...}] using brace depth tracking.
+function extractTagJSON(text: string, tagName: string): string | null {
+  const pos = findTagStart(text, tagName);
+  if (!pos) return null;
+  let i = pos.jsonStart;
+  let depth = 0;
+  while (i < text.length) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return text.slice(pos.jsonStart, i + 1);
+    }
+    i++;
+  }
+  return null;
+}
+
+// Removes [TAG_NAME:{...}] (and its closing ]) from displayed text.
+function stripTag(text: string, tagName: string): string {
+  const pos = findTagStart(text, tagName);
+  if (!pos) return text;
+  let i = pos.jsonStart;
+  let depth = 0;
+  while (i < text.length) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        // Skip past the closing "]" that follows the JSON object
+        let end = i + 1;
+        while (end < text.length && /\s/.test(text[end])) end++;
+        if (text[end] === "]") end++;
+        return (text.slice(0, pos.tagStart) + text.slice(end)).replace(/\s{2,}/g, " ").trim();
+      }
+    }
+    i++;
+  }
+  return text;
+}
+
+// Strips filler suffixes AIs tend to add to habit titles (e.g. "Gardening as new habit" → "Gardening").
+function sanitizeHabitTitle(title: string): string {
+  return title
+    .replace(/\s+as\s+(a\s+)?(new\s+)?habit\b.*$/i, "")
+    .replace(/\s+(new\s+)?habit\b\s*$/i, "")
+    .trim()
+    .replace(/^(.)/, (c) => c.toUpperCase());
+}
+
+// Checks if the user's raw message directly names an existing habit (e.g. "add Gym").
+// This catches cases where the AI renames the habit (e.g. "Gym" → "Workout session").
+function findHabitInUserMessage(habits: Habit[], userMessage: string): Habit | undefined {
+  const msg = userMessage.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  return habits.find((h) => {
+    const title = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+    return title.length >= 3 && msg.includes(title);
+  });
+}
+
+// Generic words that must not count as similarity signal between habit titles.
+const TITLE_STOP_WORDS = new Set([
+  "habit", "new", "called", "named", "every", "minutes", "daily", "session",
+  "just", "some", "that", "this", "with", "want", "track", "practice", "routine",
+  "more", "less", "time", "week", "days", "each", "also", "plan",
+]);
+
+// Checks if any active habit is similar to the suggested title.
+// Only meaningful content words are compared — generic words are ignored.
+function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  const contentWords = (s: string) =>
+    s.split(" ").filter((w) => w.length >= 3 && !TITLE_STOP_WORDS.has(w));
+
+  const t = clean(title);
+  const tWords = new Set(contentWords(t));
+
+  // If the suggested title has NO meaningful content words, skip duplicate check.
+  if (tWords.size === 0) return undefined;
+
+  return habits.find((h) => {
+    const ht = clean(h.title);
+    // Exact title match
+    if (ht === t) return true;
+    // One title is a substring of the other (covers "Gym" ↔ "Gym session")
+    if (t.length >= 3 && (ht.includes(t) || t.includes(ht))) return true;
+    // Content-word overlap ≥ 50% of the shorter set
+    const htWords = contentWords(ht);
+    if (htWords.length === 0 || tWords.size === 0) return false;
+    const overlap = htWords.filter((w) => tWords.has(w)).length;
+    return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.6;
+  });
+}
 
 export async function sendCoachMessage(input: {
   content: string;
@@ -29,7 +137,6 @@ export async function sendCoachMessage(input: {
     .single();
   const tier = sub?.tier ?? "free";
 
-  // Free-tier daily cap.
   if (tier === "free" && !canUse("free", "advanced_coach")) {
     const since = new Date();
     since.setHours(0, 0, 0, 0);
@@ -64,6 +171,8 @@ export async function sendCoachMessage(input: {
     supabase.from("profiles").select("*").eq("id", user.id).single(),
   ]);
 
+  const activeHabits = (habits ?? []) as Habit[];
+
   await supabase.from("coach_messages").insert({
     user_id: user.id,
     role: "user",
@@ -82,31 +191,104 @@ export async function sendCoachMessage(input: {
       life_mode: profile?.life_mode ?? "flexible",
       energy_baseline: profile?.energy_baseline ?? "medium",
       timezone: profile?.timezone ?? "UTC",
+      first_name: firstNameFromFullName(profile?.full_name ?? null) ?? undefined,
     },
     onboarding: onboarding ?? null,
-    activeHabits: (habits ?? []) as Habit[],
+    activeHabits,
     recentLogs: (logs ?? []) as HabitLog[],
     mood: parsed.data.mood,
     blocker: parsed.data.blocker,
   });
 
-  // Parse inline habit suggestion embedded by the AI provider
   let habitSuggestion: GeneratedHabit | undefined;
-  const habitActionMatch = reply.match(/\[HABIT_ACTION:(\{.*\})\]/);
-  const cleanReply = reply.replace(/\s*\[HABIT_ACTION:\{.*\}\]/, "").trim();
-  if (habitActionMatch) {
-    try { habitSuggestion = JSON.parse(habitActionMatch[1]) as GeneratedHabit; } catch { /* ignore */ }
+  let habitEdit: HabitEdit | undefined;
+
+  // Parse [HABIT_ACTION:JSON] — new habit suggestion
+  const habitActionJSON = extractTagJSON(reply, "HABIT_ACTION");
+  if (habitActionJSON) {
+    try {
+      const raw = JSON.parse(habitActionJSON) as GeneratedHabit;
+      const suggested = { ...raw, title: sanitizeHabitTitle(raw.title) };
+      // Check user's message first (catches AI renames like "Gym" → "Workout session"),
+      // then fall back to matching the AI's suggested title.
+      const existing =
+        findHabitInUserMessage(activeHabits, parsed.data.content) ??
+        findSimilarHabit(activeHabits, suggested.title);
+      if (existing) {
+        const patch: HabitEdit["patch"] = {
+          ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
+          ...(suggested.preferred_time !== existing.preferred_time ? { preferred_time: suggested.preferred_time } : {}),
+          ...(suggested.frequency !== existing.frequency ? { frequency: suggested.frequency } : {}),
+          ...(suggested.difficulty !== existing.difficulty ? { difficulty: suggested.difficulty } : {}),
+        };
+        // Always surface a card so the user sees the habit and gets a Dashboard link,
+        // even if there is nothing to update (patch is empty).
+        const alreadyNote = `${existing.duration_minutes}m · ${existing.preferred_time.replace(/_/g, " ")} · ${existing.frequency.replace(/_/g, " ")}`;
+        habitEdit = {
+          habit_id: existing.id,
+          title: existing.title,
+          description: Object.keys(patch).length === 0
+            ? `Already in your plan — ${alreadyNote}. View or edit it on the dashboard.`
+            : `Already exists (${alreadyNote}) — updating based on your request.`,
+          patch,
+        };
+      } else {
+        habitSuggestion = suggested;
+      }
+    } catch { /* ignore malformed JSON */ }
+  }
+
+  // Parse [HABIT_EDIT:JSON] — explicit edit request
+  const habitEditJSON = extractTagJSON(reply, "HABIT_EDIT");
+  if (habitEditJSON && !habitEdit) {
+    try {
+      const editRequest = JSON.parse(habitEditJSON) as HabitEdit;
+      const { data: targetHabit } = await supabase
+        .from("habits")
+        .select("id")
+        .eq("id", editRequest.habit_id)
+        .eq("user_id", user.id)
+        .single();
+      if (targetHabit) {
+        const result = await updateHabit(editRequest.habit_id, editRequest.patch);
+        if (result.ok) habitEdit = editRequest;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Apply auto-converted edit (from duplicate detection above).
+  // Skip updateHabit when patch is empty — habit already has the right settings.
+  if (habitEdit && habitActionJSON && !habitEditJSON && Object.keys(habitEdit.patch).length > 0) {
+    const result = await updateHabit(habitEdit.habit_id, habitEdit.patch);
+    if (!result.ok) habitEdit = undefined;
+  }
+
+  // Strip both tags from the displayed text
+  let cleanReply = stripTag(reply, "HABIT_ACTION");
+  cleanReply = stripTag(cleanReply, "HABIT_EDIT");
+
+  // When a HABIT_ACTION was converted to a duplicate card, replace the AI's
+  // "Here's X..." text with a clean message so the UI doesn't look like a new suggestion.
+  if (habitEdit && habitActionJSON && !habitEditJSON) {
+    const wasUpdated = Object.keys(habitEdit.patch).length > 0;
+    cleanReply = wasUpdated
+      ? `Updated "${habitEdit.title}" based on your request.`
+      : `"${habitEdit.title}" is already in your plan.`;
   }
 
   await supabase.from("coach_messages").insert({
     user_id: user.id,
     role: "assistant",
     content: cleanReply,
-    context: habitSuggestion ? { habitSuggestion } : {},
+    context: {
+      ...(habitSuggestion ? { habitSuggestion } : {}),
+      ...(habitEdit ? { habitEdit } : {}),
+    },
   });
 
   revalidatePath("/coach");
-  return { ok: true as const, reply: cleanReply, habitSuggestion };
+  revalidatePath("/dashboard");
+  return { ok: true as const, reply: cleanReply, habitSuggestion, habitEdit };
 }
 
 export async function suggestAdaptations(): Promise<

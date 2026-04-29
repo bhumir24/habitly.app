@@ -76,11 +76,8 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && (path === "/login" || path === "/signup")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
+  // Allow /login and /signup even when a session exists — users must choose to sign in
+  // (e.g. switch accounts) instead of being bounced to the dashboard.
 
   return response;
 }

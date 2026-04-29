@@ -126,17 +126,42 @@ export function HabitDetail({
                 options={DIFFICULTIES.map((c) => ({ v: c.value, l: c.label }))}
                 onChange={(v) => setForm({ ...form, difficulty: v as any })}
               />
-              <div>
-                <Label>Duration (min)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={240}
-                  value={form.duration_minutes}
-                  onChange={(e) =>
-                    setForm({ ...form, duration_minutes: Number(e.target.value) })
-                  }
-                />
+              <div className="col-span-2">
+                <Label>Duration (hours + mins)</Label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={4}
+                    value={Math.floor(form.duration_minutes / 60)}
+                    onChange={(e) => {
+                      const hours = Math.max(0, Math.min(4, Number(e.target.value || 0)));
+                      const mins = form.duration_minutes % 60;
+                      setForm({
+                        ...form,
+                        duration_minutes: Math.max(1, Math.min(240, hours * 60 + mins)),
+                      });
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">h</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={form.duration_minutes % 60}
+                    onChange={(e) => {
+                      const mins = Math.max(0, Math.min(59, Number(e.target.value || 0)));
+                      const hours = Math.floor(form.duration_minutes / 60);
+                      setForm({
+                        ...form,
+                        duration_minutes: Math.max(1, Math.min(240, hours * 60 + mins)),
+                      });
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">m</span>
+                </div>
               </div>
               <div>
                 <Label>Bad-day fallback</Label>

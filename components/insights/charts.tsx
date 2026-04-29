@@ -10,79 +10,77 @@ import {
   LineChart,
   Line,
   CartesianGrid,
+  Legend,
   Cell,
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import type { WeeklySummary } from "@/types";
 
 export function PerHabitBar({ data }: { data: WeeklySummary["per_habit"] }) {
-  const rows = data.map((p) => ({
-    name: p.title.length > 18 ? p.title.slice(0, 18) + "…" : p.title,
-    completed: p.completed,
-    skipped: p.skipped,
-    rate: Math.round(p.rate * 100),
+  const rows = data.map((h) => ({
+    name: h.title.length > 14 ? h.title.slice(0, 14) + "…" : h.title,
+    Completed: h.completed,
+    Skipped: h.skipped,
   }));
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer>
-        <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+        <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 40, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-35} textAnchor="end" />
           <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-          <Tooltip
-            contentStyle={{ borderRadius: 8, fontSize: 12 }}
-            cursor={{ fill: "hsl(var(--accent))" }}
-            formatter={(value: number, name: string) => [value, name === "completed" ? "Completed" : "Skipped"]}
-          />
-          <Bar dataKey="completed" stackId="a" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="completed" />
-          <Bar dataKey="skipped" stackId="a" fill="hsl(var(--muted-foreground))" opacity={0.4} name="skipped" />
+          <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} cursor={{ fill: "hsl(var(--accent))" }} />
+          <Legend verticalAlign="top" iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Completed" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} maxBarSize={20} />
+          <Bar dataKey="Skipped" fill="hsl(var(--destructive))" radius={[3, 3, 0, 0]} maxBarSize={20} opacity={0.75} />
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-const MOOD_LABELS: Record<number, string> = { 1: "Low", 2: "Low-mid", 3: "Neutral", 4: "Good", 5: "Great" };
-
-function MoodTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
-  if (!active || !payload?.length) return null;
-  const mood = payload[0].value;
-  return (
-    <div className="rounded-lg border bg-background p-2 text-xs shadow-md">
-      <div className="font-medium">{label}</div>
-      <div className="text-muted-foreground">
-        {mood} — {MOOD_LABELS[mood] ?? "—"}
-      </div>
-    </div>
-  );
-}
+const MOOD_EMOJI: Record<number, string> = { 1: "😫", 2: "😕", 3: "😐", 4: "😊", 5: "🤩" };
+const MOOD_LABEL: Record<number, string> = { 1: "Rough", 2: "Low", 3: "Okay", 4: "Good", 5: "Great" };
 
 export function MoodLine({ data }: { data: WeeklySummary["mood_trend"] }) {
-  const rows = data.map((d) => ({ day: format(parseISO(d.date), "EEE"), mood: d.mood }));
+  const rows = data.filter((d) => d.mood > 0).map((d) => ({ day: format(parseISO(d.date), "EEE"), mood: d.mood }));
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-md border border-dashed">
+        <p className="text-center text-sm text-muted-foreground">
+          No mood logged this week yet.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-2">
-      <div className="h-48 w-full">
-        <ResponsiveContainer>
-          <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-            <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-            <YAxis domain={[0, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fontSize: 11 }} />
-            <Tooltip content={<MoodTooltip />} />
-            <Line
-              type="monotone"
-              dataKey="mood"
-              stroke="hsl(var(--primary))"
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex justify-between px-1 text-[10px] text-muted-foreground">
-        <span>1 = Low</span>
-        <span>3 = Neutral</span>
-        <span>5 = Great</span>
-      </div>
+    <div className="h-48 w-full">
+      <ResponsiveContainer>
+        <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+          <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+          <YAxis
+            domain={[1, 5]}
+            ticks={[1, 2, 3, 4, 5]}
+            width={28}
+            tick={(props) => (
+              <text x={props.x} y={props.y} dy={4} textAnchor="end" fontSize={14}>
+                {MOOD_EMOJI[props.payload.value] ?? props.payload.value}
+              </text>
+            )}
+          />
+          <Tooltip
+            contentStyle={{ borderRadius: 8, fontSize: 12 }}
+            formatter={(v: number) => [
+              `${MOOD_EMOJI[Math.round(v)] ?? ""} ${MOOD_LABEL[Math.round(v)] ?? v}`,
+              "Mood",
+            ]}
+          />
+          <Line type="monotone" dataKey="mood" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 5 }} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -132,13 +130,15 @@ export function CategoryBar({ data }: { data: WeeklySummary["per_habit"] }) {
     categoryMap.set(cat, entry);
   }
 
-  const rows = [...categoryMap.entries()].map(([cat, v]) => ({
-    category: cat,
-    completed: v.completed,
-    skipped: v.skipped,
-    rate: v.completed + v.skipped === 0 ? 0 : Math.round((v.completed / (v.completed + v.skipped)) * 100),
-    color: CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.other,
-  })).sort((a, b) => b.rate - a.rate);
+  const rows = [...categoryMap.entries()]
+    .map(([cat, v]) => ({
+      category: cat,
+      completed: v.completed,
+      skipped: v.skipped,
+      rate: v.completed + v.skipped === 0 ? 0 : Math.round((v.completed / (v.completed + v.skipped)) * 100),
+      color: CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.other,
+    }))
+    .sort((a, b) => b.rate - a.rate);
 
   return (
     <div className="h-48 w-full">

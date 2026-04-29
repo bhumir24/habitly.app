@@ -20,7 +20,7 @@ export default async function OnboardingPage() {
       <div className="absolute inset-0 -z-10 grad-soft" />
       <div className="container max-w-3xl py-10">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Let's build your plan</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{"Let's build your plan"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Answer 6 quick steps. Your AI coach plans around this.
           </p>

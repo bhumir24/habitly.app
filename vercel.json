@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/reminders/tick",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/habits/auto-skip",
+      "schedule": "5 0 * * *"
+    }
+  ]
+}

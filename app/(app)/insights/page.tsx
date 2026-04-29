@@ -2,25 +2,19 @@ import { redirect } from "next/navigation";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { InsightsPanel } from "@/components/insights/insights-panel";
-import { mondayOf, toISODate } from "@/lib/date";
-import { subWeeks } from "date-fns";
-import type { WeeklyReport } from "@/types";
+import { buildWeeklySummary } from "@/services/habit-service";
+import { calendarDateInTimeZone, prevCalendarDay } from "@/lib/date";
+import type { Habit, HabitLog, WeeklyReport } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function InsightsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  const thisWeek = toISODate(mondayOf());
-  const lastWeek = toISODate(subWeeks(mondayOf(), 1));
-
-  let report: WeeklyReport | null = null;
-  let prevReport: WeeklyReport | null = null;
-  let sub = null;
 
   if (process.env.DEMO_LOGIN === "true") {
-    sub = { tier: "premium" };
-    report = {
+    const thisWeek = calendarDateInTimeZone("UTC");
+    const demoReport: WeeklyReport = {
       id: "mock",
       user_id: user.id,
       week_start: thisWeek,
@@ -33,12 +27,12 @@ export default async function InsightsPage() {
         completion_rate: 0.40,
         streak_days: 2,
         mood_avg: 3.2,
+        weekday_rate: 0.47,
+        weekend_rate: 0.17,
         most_skipped: [
           { habit_id: "h3", title: "Meditation", count: 4 },
           { habit_id: "h1", title: "Morning Run", count: 3 }
         ],
-        weekday_rate: 0.47,
-        weekend_rate: 0.17,
         per_habit: [
           { habit_id: "h1", title: "Morning Run", category: "movement", completed: 2, skipped: 3, rate: 0.40, streak: 1 },
           { habit_id: "h2", title: "Read 10 Pages", category: "learning", completed: 3, skipped: 2, rate: 0.60, streak: 3 },
@@ -62,10 +56,10 @@ export default async function InsightsPage() {
       },
       created_at: new Date().toISOString()
     };
-    prevReport = {
+    const demoPrev: WeeklyReport = {
       id: "mock-prev",
       user_id: user.id,
-      week_start: lastWeek,
+      week_start: prevCalendarDay(thisWeek),
       ai_insight: null,
       recommended_next_step: null,
       summary_json: {
@@ -86,37 +80,81 @@ export default async function InsightsPage() {
       },
       created_at: new Date().toISOString()
     };
-  } else {
-    const supabase = createClient();
-    const [r, prev, s] = await Promise.all([
-      supabase
-        .from("weekly_reports")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("week_start", thisWeek)
-        .maybeSingle(),
-      supabase
-        .from("weekly_reports")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("week_start", lastWeek)
-        .maybeSingle(),
-      supabase.from("subscriptions").select("tier").eq("user_id", user.id).single(),
-    ]);
-    report = r.data;
-    prevReport = prev.data ?? null;
-    sub = s.data;
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="Weekly insights"
+          subtitle="Last 7 days — charts update automatically. Hit Re-run to refresh AI suggestions."
+        />
+        <InsightsPanel
+          initial={demoReport}
+          liveSummary={demoReport.summary_json}
+          prevReport={demoPrev}
+          tier="premium"
+        />
+      </div>
+    );
   }
+
+  const supabase = createClient();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+  const tz = profile?.timezone ?? "UTC";
+  const weekEnd = calendarDateInTimeZone(tz);
+  let startISO = weekEnd;
+  for (let i = 0; i < 6; i++) startISO = prevCalendarDay(startISO);
+
+  const [{ data: reports }, { data: sub }, { data: habits }, { data: logs }, { data: dailyMoods }] =
+    await Promise.all([
+      supabase
+        .from("weekly_reports")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("week_start", { ascending: false })
+        .limit(2),
+      supabase.from("subscriptions").select("tier").eq("user_id", user.id).single(),
+      supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true),
+      supabase
+        .from("habit_logs")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("completion_date", startISO)
+        .lte("completion_date", weekEnd),
+      supabase
+        .from("daily_moods")
+        .select("mood_date, mood")
+        .eq("user_id", user.id)
+        .gte("mood_date", startISO)
+        .lte("mood_date", weekEnd),
+    ]);
+
+  const report = (reports?.[0] ?? null) as WeeklyReport | null;
+  const prevReport = (reports?.[1] ?? null) as WeeklyReport | null;
+
+  const liveSummary = buildWeeklySummary(
+    (habits ?? []) as Habit[],
+    (logs ?? []) as HabitLog[],
+    tz,
+    {
+      weekMondayISO: startISO,
+      dailyMoods: (dailyMoods ?? []) as Array<{ mood_date: string; mood: number }>,
+    }
+  );
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Weekly insights"
-        subtitle="What worked, what didn't, and one concrete step for next week."
+        subtitle="Last 7 days — charts update automatically. Hit Re-run to refresh AI suggestions."
       />
       <InsightsPanel
-        initial={(report as WeeklyReport) ?? null}
-        prevReport={(prevReport as WeeklyReport) ?? null}
+        initial={report}
+        liveSummary={liveSummary}
+        prevReport={prevReport}
         tier={sub?.tier ?? "free"}
       />
     </div>

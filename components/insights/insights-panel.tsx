@@ -9,15 +9,16 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PerHabitBar, MoodLine, BestWindowsBar, CategoryBar } from "./charts";
 import { generateWeeklyReport } from "@/actions/insights";
 import { featureCopy } from "@/lib/feature-flags";
-import type { PlanTier, WeeklyReport } from "@/types";
-import { format, parseISO } from "date-fns";
+import type { PlanTier, WeeklyReport, WeeklySummary } from "@/types";
 
 export function InsightsPanel({
   initial,
+  liveSummary,
   prevReport,
   tier,
 }: {
   initial: WeeklyReport | null;
+  liveSummary: WeeklySummary;
   prevReport: WeeklyReport | null;
   tier: PlanTier;
 }) {
@@ -26,39 +27,37 @@ export function InsightsPanel({
   const [error, setError] = useState<string | null>(null);
   const isPremium = tier === "premium";
 
+  // Always use live server-computed data for charts and stats
+  const s = liveSummary;
+  const hasData = s.per_habit.length > 0 || s.total_scheduled > 0;
+
   const run = () =>
     startTransition(async () => {
       setError(null);
       const res = await generateWeeklyReport();
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
+      if (!res.ok) { setError(res.error); return; }
       setReport(res.report);
     });
 
-  if (!report) {
+  if (!hasData) {
     return (
       <EmptyState
         icon={Sparkles}
-        title="No weekly report yet"
-        description="Generate one anytime after you've logged a few habits."
+        title="No habits logged yet"
+        description="Start tracking habits on the dashboard, then come back here."
         action={
-          <Button onClick={run} disabled={isPending}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Generate this week's report
+          <Button asChild>
+            <a href="/dashboard">Go to dashboard</a>
           </Button>
         }
       />
     );
   }
 
-  const s = report.summary_json;
-  const prevRate = prevReport?.summary_json.completion_rate ?? null;
   const thisRate = Math.round(s.completion_rate * 100);
+  const prevRate = prevReport?.summary_json.completion_rate ?? null;
   const prevRatePct = prevRate !== null ? Math.round(prevRate * 100) : null;
   const delta = prevRatePct !== null ? thisRate - prevRatePct : null;
-
   const hasEnoughData = s.total_scheduled >= 7;
 
   return (
@@ -66,9 +65,7 @@ export function InsightsPanel({
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="secondary">
-            Week of {format(parseISO(report.week_start), "MMM d")}
-          </Badge>
+          <Badge variant="secondary">Last 7 days</Badge>
           <Badge>{thisRate}% completion</Badge>
           {delta !== null && (
             <Badge
@@ -87,11 +84,7 @@ export function InsightsPanel({
           )}
         </div>
         <Button variant="outline" onClick={run} disabled={isPending}>
-          {isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
+          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           Re-run
         </Button>
       </div>
@@ -108,40 +101,40 @@ export function InsightsPanel({
         </Card>
       )}
 
-      {/* AI insight */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-4 w-4 text-primary" />
-            AI insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm leading-relaxed">{report.ai_insight}</p>
-          {report.recommended_next_step && (
-            <div className="rounded-md border bg-background p-3 text-sm">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">
-                Next-week step
+      {/* AI insight — shown only after Re-run generates one */}
+      {report ? (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI insight
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm leading-relaxed">{report.ai_insight}</p>
+            {report.recommended_next_step && (
+              <div className="rounded-md border bg-background p-3 text-sm">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">
+                  Next-week step
+                </div>
+                {report.recommended_next_step}
               </div>
-              {report.recommended_next_step}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-dashed">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
+            <Sparkles className="h-5 w-5 shrink-0 text-primary" />
+            Hit <strong className="text-foreground mx-1">Re-run</strong> above to get a personalised AI summary of your week.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stat tiles */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <StatTile
-          label="Completed"
-          value={s.total_completed}
-          hint={`of ${s.total_scheduled} scheduled`}
-        />
-        <StatTile
-          label="Skipped"
-          value={s.total_skipped}
-          hint="this week"
-          muted
-        />
+        <StatTile label="Completed" value={s.total_completed} hint={`of ${s.total_scheduled} scheduled`} />
+        <StatTile label="Skipped" value={s.total_skipped} hint="this week" muted />
         <StatTile
           label="Streak"
           value={s.streak_days}
@@ -156,11 +149,7 @@ export function InsightsPanel({
             positive={delta !== null && delta > 0}
           />
         ) : (
-          <StatTile
-            label="Completion rate"
-            value={`${thisRate}%`}
-            hint="habits done vs scheduled"
-          />
+          <StatTile label="Completion rate" value={`${thisRate}%`} hint="habits done vs scheduled" />
         )}
       </div>
 
@@ -176,7 +165,7 @@ export function InsightsPanel({
               <div className="divide-y rounded-md border text-sm">
                 {s.per_habit.map((p) => (
                   <div key={p.habit_id} className="flex items-center justify-between px-3 py-2">
-                    <span className="truncate text-muted-foreground max-w-[60%]">{p.title}</span>
+                    <span className="truncate text-muted-foreground max-w-[55%]">{p.title}</span>
                     <div className="flex items-center gap-3 shrink-0">
                       <span className="text-xs text-muted-foreground">{Math.round(p.rate * 100)}% this week</span>
                       {p.streak !== undefined && (
@@ -216,7 +205,7 @@ export function InsightsPanel({
                 <div className="text-3xl font-semibold">
                   {s.weekday_rate !== null ? `${Math.round(s.weekday_rate * 100)}%` : "—"}
                 </div>
-                {s.weekday_rate !== null && s.weekend_rate !== null && (
+                {s.weekday_rate !== null && (
                   <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                     <div className="h-full bg-primary rounded-full" style={{ width: `${Math.round(s.weekday_rate * 100)}%` }} />
                   </div>
@@ -227,7 +216,7 @@ export function InsightsPanel({
                 <div className="text-3xl font-semibold">
                   {s.weekend_rate !== null ? `${Math.round(s.weekend_rate * 100)}%` : "—"}
                 </div>
-                {s.weekday_rate !== null && s.weekend_rate !== null && (
+                {s.weekend_rate !== null && (
                   <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                     <div className="h-full bg-primary rounded-full" style={{ width: `${Math.round(s.weekend_rate * 100)}%` }} />
                   </div>
@@ -270,9 +259,7 @@ export function InsightsPanel({
               {s.best_windows.length > 0 ? (
                 <BestWindowsBar data={s.best_windows} />
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  Not enough data yet.
-                </p>
+                <p className="text-sm text-muted-foreground">Not enough data yet.</p>
               )}
             </CardContent>
           </Card>
@@ -297,9 +284,7 @@ export function InsightsPanel({
                       </div>
                     ))
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <p className="text-xs text-muted-foreground italic">No friction notes this week.</p>
-                    </div>
+                    <p className="text-xs text-muted-foreground italic py-4 text-center">No friction notes this week.</p>
                   )}
                 </div>
               </div>

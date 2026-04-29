@@ -4,11 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { buildWeeklySummary } from "@/services/habit-service";
 import { getAIProvider } from "@/ai/provider";
-import { mondayOf, toISODate } from "@/lib/date";
-import { addDays } from "date-fns";
+import { calendarDateInTimeZone, prevCalendarDay } from "@/lib/date";
 import type { Habit, HabitLog, WeeklyReport } from "@/types";
 
-export async function generateWeeklyReport(weekStart?: string): Promise<
+export async function generateWeeklyReport(): Promise<
   { ok: true; report: WeeklyReport } | { ok: false; error: string }
 > {
   const user = await getSessionUser();
@@ -21,7 +20,7 @@ export async function generateWeeklyReport(weekStart?: string): Promise<
       report: {
         id: "mock-new",
         user_id: user.id,
-        week_start: toISODate(mondayOf()),
+        week_start: calendarDateInTimeZone("UTC"),
         ai_insight: "Your morning habits are carrying you — 60% completion before noon, but evenings are falling apart. Read 10 Pages is your strongest habit at 60%; Meditation is the drag at 20%. One change this week: move Meditation to the morning block right after your run.",
         recommended_next_step: "Swap Meditation to the morning slot (right after Morning Run). Shrink it to 5 minutes for the first week to prove the slot works.",
         summary_json: {
@@ -65,32 +64,42 @@ export async function generateWeeklyReport(weekStart?: string): Promise<
 
   const supabase = createClient();
 
-  const start = weekStart ? new Date(weekStart) : mondayOf();
-  const startISO = toISODate(start);
-  const endISO = toISODate(new Date(start.getTime() + 6 * 86400e3));
-  const sixtyDaysAgo = toISODate(addDays(new Date(), -60));
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+  const tz = profile?.timezone ?? "UTC";
 
-  const [{ data: habits }, { data: logs }, { data: allLogs }, { data: onboarding }] = await Promise.all([
-    supabase.from("habits").select("*").eq("user_id", user.id),
+  const weekEnd = calendarDateInTimeZone(tz);
+  let startISO = weekEnd;
+  for (let i = 0; i < 6; i++) startISO = prevCalendarDay(startISO);
+
+  const [{ data: habits }, { data: logs }, { data: onboarding }, { data: dailyMoods }] = await Promise.all([
+    supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true),
     supabase
       .from("habit_logs")
       .select("*")
       .eq("user_id", user.id)
       .gte("completion_date", startISO)
-      .lte("completion_date", endISO),
-    supabase
-      .from("habit_logs")
-      .select("habit_id,completion_date,status,user_id,id,mood,blocker_note,created_at")
-      .eq("user_id", user.id)
-      .gte("completion_date", sixtyDaysAgo),
+      .lte("completion_date", weekEnd),
     supabase.from("onboarding_responses").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("daily_moods")
+      .select("mood_date, mood")
+      .eq("user_id", user.id)
+      .gte("mood_date", startISO)
+      .lte("mood_date", weekEnd),
   ]);
 
   const summary = buildWeeklySummary(
     (habits ?? []) as Habit[],
     (logs ?? []) as HabitLog[],
-    start,
-    (allLogs ?? []) as HabitLog[]
+    tz,
+    {
+      weekMondayISO: startISO,
+      dailyMoods: (dailyMoods ?? []) as Array<{ mood_date: string; mood: number }>,
+    }
   );
 
   const ai = await getAIProvider();

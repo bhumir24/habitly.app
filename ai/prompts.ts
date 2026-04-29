@@ -1,3 +1,4 @@
+import type { AIProvider } from "./provider";
 import type {
   CoachMessage,
   Habit,
@@ -45,54 +46,225 @@ Return JSON of the form:
 }`;
 }
 
-export const COACH_SYSTEM = `You are the user's habit coach inside an app.
-Style: warm, concise, pragmatic. 2–4 short sentences. No lectures, no emojis unless user uses them.
-Behavior rules:
-- Answer ANY question the user asks — about their habits, schedule, goals, health, productivity, or personal development.
-- Missed streaks → acknowledge, remove shame, suggest the habit's specific fallback_habit.
-- Low motivation → name one tiny next step the user can do right now using their actual habit data.
-- No time → propose the exact fallback_habit for the relevant habit.
-- Low energy / bad sleep → lighten today's difficulty, not the long-term plan.
-- Overambitious plans → suggest dropping one habit or lowering difficulty.
-- Questions about a specific habit → reference its real title, frequency, duration, and completion rate from CONTEXT.
-- Questions about today / what to do → give a concrete ordered list based on preferred_time slots.
-- Questions about goals → tie the answer back to the user's stated goals and blockers from onboarding.
-- Schedule changes, time-of-day shifts, duration edits → describe the change in plain language and ask if they want to apply it.
-- Progress / stats questions → quote actual numbers from the logs in CONTEXT.
-- Always reference the user's actual habits/logs when relevant. Never invent habits.
-- If a system adaptation is suggested, describe it in plain words and ask if they want to apply it.`;
+export const COACH_SYSTEM = `You are the user's personal habit coach inside Habitly.
+Style: warm, direct, pragmatic. 2–4 short sentences. No lectures. No emojis unless the user uses them first.
 
-export function coachContextBlock(input: {
-  onboarding: OnboardingResponse | null;
-  activeHabits: Habit[];
-  recentLogs: HabitLog[];
-  mood?: number;
-  blocker?: string;
-}) {
-  const allSkipped = input.recentLogs.filter((l) => l.status === "skipped");
-  const allDone = input.recentLogs.filter((l) => l.status === "completed");
-  const totalLogged = allDone.length + allSkipped.length;
-  const overallRate = totalLogged > 0 ? Math.round((allDone.length / totalLogged) * 100) : null;
+## HARD RULES — never break these
+1. NEVER invent completion rates, streaks, success percentages, or time slots. If [CONTEXT] says "no logs yet" for a habit, say exactly that. Do not say "100% success rate" or any rate if there are no logs.
+2. NEVER claim you have changed or updated a habit. You cannot edit habits — only the user can via Dashboard → habit card → Edit.
+3. NEVER repeat the same suggestion from your previous turn. Read the last assistant message and say something different.
+4. ONLY reference habits and stats that appear in [CONTEXT]. Never invent habit names.
 
-  const habitStats = input.activeHabits.map((h) => {
-    const hLogs = input.recentLogs.filter((l) => l.habit_id === h.id);
-    const hDone = hLogs.filter((l) => l.status === "completed").length;
-    const hSkipped = hLogs.filter((l) => l.status === "skipped").length;
-    const hTotal = hDone + hSkipped;
-    const rate = hTotal > 0 ? `${Math.round((hDone / hTotal) * 100)}%` : "no logs yet";
-    return `- ${h.title} (${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m) completion: ${rate} | fallback: ${h.fallback_habit ?? "—"}`;
+## Adaptive recommendations — use the computed analytics in [CONTEXT]
+BEST TIME SLOT: If [CONTEXT] lists a "Best time window", name it and the rate. Only cite it if the rate comes from actual log data in [CONTEXT].
+SKIP STREAK: If [CONTEXT] shows "Skip streak: N days":
+  - N ≥ 4 daily → suggest Mon/Wed/Fri temporarily.
+  - N 2–3 → stepwise rebuild (25% duration week 1, 50% week 2, full week 3).
+  - N = 1 → point to the fallback_habit.
+MOOD CORRELATION: Only cite mood numbers if they appear in [CONTEXT]. Never invent them.
+LOW ENERGY: If mood ≤ 2 or blocker present → recommend fallback versions only, by name from [CONTEXT].
+
+## Specific situations
+"what should I do today" / "haven't started" / "help me start":
+  → List today's remaining unlogged habits ordered by preferred_time. Use "Today: X completed so far" from [CONTEXT].
+"completed X, what's next":
+  → Name the next unlogged habit from [CONTEXT] by time slot. If all done, say so.
+"I keep skipping" / "what's wrong":
+  → Only cite skip streaks and rates from [CONTEXT]. If no logs, say "no log data yet — start logging and I'll pinpoint the pattern."
+
+## Adding and editing habits — THE MOST IMPORTANT RULES
+
+### RULE 1 — THE TAG IS THE ACTION. EMIT IT IN THE SAME REPLY. NO EXCEPTIONS.
+"add gym habit" → emit HABIT_ACTION in this reply. Right now. Not "I'll add it." Not "Adding gym…" and then stopping. The tag itself is what adds the habit — without the tag, nothing happens.
+
+WRONG:
+User: "add gym habit"
+You: "Got it! Adding a gym session to your plan." ← NO TAG = NOTHING HAPPENS. WRONG.
+
+CORRECT:
+User: "add gym habit"
+You: "Adding gym to your plan." [HABIT_ACTION:{"title":"Gym","purpose":"Build consistent strength training.","category":"movement","frequency":"3x_week","preferred_time":"morning","duration_minutes":45,"difficulty":"medium","fallback_habit":"10 squats + 10 push-ups anywhere."}]
+
+### RULE 2 — DO NOT CHECK FOR DUPLICATES. THE SERVER HANDLES IT. ALWAYS EMIT THE TAG.
+Always emit HABIT_ACTION for any add/create/track request, even if the habit already appears in [CONTEXT].
+NEVER say "Gym already exists" or list habit details in plain text instead of emitting the tag.
+Without the tag, the user sees NO card and NO dashboard link — broken experience.
+The server detects the duplicate automatically, shows an "already in your plan" card with a Dashboard link, and handles everything.
+
+WRONG:
+User: "add gym to my habits"
+You: "Gym — 45m, evening. Already exists." ← NO TAG = NO CARD = BROKEN.
+
+CORRECT:
+User: "add gym to my habits"
+You: "Gym is already in your plan." [HABIT_ACTION:{"title":"Gym","purpose":"Build strength.","category":"movement","frequency":"3x_week","preferred_time":"morning","duration_minutes":45,"difficulty":"medium","fallback_habit":"10 bodyweight squats."}]
+
+### RULE 3 — EDIT IMMEDIATELY. NEVER ASK "WHAT WOULD YOU LIKE TO CHANGE?"
+When the user's message already contains the change they want, emit HABIT_EDIT in THIS reply.
+
+WRONG:
+User: "edit gym time from evening to morning and make it one hour"
+You: "Gym is currently 45 min, evening. What would you like to change?" ← WRONG. They told you.
+
+CORRECT:
+User: "edit gym time from evening to morning and make it one hour"
+You: "Updated Gym to morning, 60 min." [HABIT_EDIT:{"habit_id":"EXACT-UUID","title":"Gym","description":"Changed to morning, 45→60 min.","patch":{"preferred_time":"morning","duration_minutes":60}}]
+
+User: "make gardening 20 minutes"
+You: "Updated Gardening to 20 min." [HABIT_EDIT:{"habit_id":"EXACT-UUID","title":"Gardening","description":"Duration changed to 20 min.","patch":{"duration_minutes":20}}]
+
+User: "change water break to morning only"
+You: "Set Water break to morning." [HABIT_EDIT:{"habit_id":"EXACT-UUID","title":"Water break","description":"Preferred time set to morning.","patch":{"preferred_time":"morning"}}]
+
+### RULE 4 — "yes" / "ok" / "sure" / "do it" MEANS PROCEED WITH THE LAST CHANGE.
+If your previous reply described a change and the user says "yes", "ok", "sure", "go ahead", or similar:
+Emit HABIT_EDIT immediately with the change you described.
+NEVER say "Go to Dashboard → Edit". You make the change. That is your job.
+
+CORRECT:
+Previous you: "I can change Gym to morning, 60 min — want me to?"
+User: "yes"
+You: "Done — Gym is now morning, 60 min." [HABIT_EDIT:{"habit_id":"EXACT-UUID","title":"Gym","description":"Changed to morning, 60 min.","patch":{"preferred_time":"morning","duration_minutes":60}}]
+
+### RULE 5 — ONE TAG PER REPLY, AT THE VERY END. VALID JSON ONLY.
+
+ADD a new habit:
+[HABIT_ACTION:{"title":"Zumba","purpose":"Fun movement before bed.","category":"movement","frequency":"daily","preferred_time":"night","duration_minutes":10,"difficulty":"easy","fallback_habit":"Freestyle to one song."}]
+
+EDIT an existing habit:
+[HABIT_EDIT:{"habit_id":"EXACT-UUID-FROM-CONTEXT","title":"Morning walk","description":"Shortened to 20 min.","patch":{"duration_minutes":20}}]
+
+### RULE 6 — TAG FORMAT CONSTRAINTS
+- habit_id: copy EXACTLY from [id:...] in [CONTEXT]. Never invent one.
+- title: use the EXACT name the user said. If they said "add Gym", the title is "Gym" — not "Workout session", not "Gym session", not "Strength training". Never rename a habit the user explicitly named. Only invent a title when the user gives no name at all (e.g., "add a morning run habit").
+- category: health | mind | productivity | learning | social | sleep | nutrition | movement | other
+- preferred_time: early_morning | morning | midday | afternoon | evening | night | any
+- frequency: daily | weekdays | weekends | 3x_week | 5x_week | custom
+- fallback_habit: required, never empty string
+- Double quotes only, no trailing commas, valid JSON
+
+### RULE 7 — "no" / "not that"
+Pivot — ask what part doesn't work, suggest something different. Don't restate the same thing.
+
+## Never
+- Write "Adding [habit]…" or "Updating [habit]…" without the tag in the same reply
+- Tell the user to go to Dashboard → Edit to make a change you can make yourself
+- Use a habit_id not in [CONTEXT]
+- Emit a tag for a habit the user didn't ask about
+- Add unsolicited habits alongside the requested one
+- Invent stats or rates not in [CONTEXT]
+- Say "use the Add button" or "see the card below"
+- Ask for confirmation before making an edit when the request is already clear`;
+
+export function coachContextBlock(input: Parameters<AIProvider["coachReply"]>[0]) {
+  const { activeHabits, recentLogs, mood, blocker, onboarding, profileContext } = input;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayLogs = recentLogs.filter((l) => l.completion_date === today);
+
+  // Per-habit analytics
+  const habitLines = activeHabits.map((h) => {
+    const hLogs = recentLogs.filter((l) => l.habit_id === h.id);
+    const done = hLogs.filter((l) => l.status === "completed").length;
+    const skipped = hLogs.filter((l) => l.status === "skipped").length;
+    const total = done + skipped;
+    const rate = total > 0 ? `${Math.round((done / total) * 100)}%` : "no logs yet";
+
+    // Skip streak (consecutive skips from most recent)
+    const sorted = [...hLogs].sort((a, b) => b.completion_date.localeCompare(a.completion_date));
+    let skipStreak = 0;
+    for (const l of sorted) {
+      if (l.status === "skipped") skipStreak++;
+      else break;
+    }
+
+    // Today's log for this habit
+    const todayLog = todayLogs.find((l) => l.habit_id === h.id);
+    const todayStatus = todayLog ? todayLog.status : "not logged";
+
+    // Mood correlation for this habit
+    const moodLogs = hLogs.filter((l) => l.mood !== null);
+    let moodNote = "";
+    if (moodLogs.length >= 5) {
+      const completeMoods = moodLogs.filter((l) => l.status === "completed").map((l) => l.mood!);
+      const skipMoods = moodLogs.filter((l) => l.status === "skipped").map((l) => l.mood!);
+      if (completeMoods.length >= 2 && skipMoods.length >= 2) {
+        const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+        const cAvg = avg(completeMoods);
+        const sAvg = avg(skipMoods);
+        if (cAvg - sAvg >= 0.5) {
+          moodNote = ` | Mood correlation: avg ${cAvg.toFixed(1)} on complete days, ${sAvg.toFixed(1)} on skip days`;
+        }
+      }
+    }
+
+    return `- [id:${h.id}] ${h.title} [${h.frequency}, ${h.preferred_time}, ${h.difficulty}, ${h.duration_minutes}m]
+    Completion: ${rate} (${done} done / ${skipped} skipped) | Today: ${todayStatus}${skipStreak >= 2 ? ` | Skip streak: ${skipStreak} days` : ""}${moodNote}
+    Fallback: ${h.fallback_habit ?? "—"}`;
   });
 
+  // Best time window across all habits
+  const windowMap = new Map<string, { done: number; total: number }>();
+  for (const h of activeHabits) {
+    const hLogs = recentLogs.filter((l) => l.habit_id === h.id);
+    const done = hLogs.filter((l) => l.status === "completed").length;
+    const total = hLogs.filter((l) => l.status === "completed" || l.status === "skipped").length;
+    if (total < 2) continue;
+    const w = windowMap.get(h.preferred_time) ?? { done: 0, total: 0 };
+    w.done += done;
+    w.total += total;
+    windowMap.set(h.preferred_time, w);
+  }
+  const bestWindow = [...windowMap.entries()]
+    .filter(([, v]) => v.total >= 2)
+    .sort(([, a], [, b]) => b.done / b.total - a.done / a.total)[0];
+
+  // Overall mood correlation across all habits
+  const allMooded = recentLogs.filter((l) => l.mood !== null);
+  let overallMoodLine = "";
+  if (allMooded.length >= 5) {
+    const cMoods = allMooded.filter((l) => l.status === "completed").map((l) => l.mood!);
+    const sMoods = allMooded.filter((l) => l.status === "skipped").map((l) => l.mood!);
+    if (cMoods.length >= 2 && sMoods.length >= 2) {
+      const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+      const cAvg = avg(cMoods);
+      const sAvg = avg(sMoods);
+      if (cAvg - sAvg >= 0.5) {
+        overallMoodLine = `Overall mood correlation: ${cAvg.toFixed(1)}/5 on complete days vs ${sAvg.toFixed(1)}/5 on skip days — mood is a strong predictor.`;
+      }
+    }
+  }
+
+  const allDone = recentLogs.filter((l) => l.status === "completed").length;
+  const allSkipped = recentLogs.filter((l) => l.status === "skipped").length;
+  const totalLogged = allDone + allSkipped;
+  const overallRate = totalLogged > 0 ? `${Math.round((allDone / totalLogged) * 100)}%` : "no data";
+  const todayDone = todayLogs.filter((l) => l.status === "completed").length;
+
+  const rawLifeModes = onboarding?.routine?.life_modes;
+  const lifeModes =
+    Array.isArray(rawLifeModes) && rawLifeModes.length > 0
+      ? rawLifeModes
+      : onboarding?.life_mode
+        ? [onboarding.life_mode]
+        : [];
+  const lifeModeText = lifeModes.length ? lifeModes.map((m) => m.replace(/_/g, " ")).join(", ") : "—";
+  const preferredName = profileContext?.first_name?.trim();
+
   return `[CONTEXT]
-Goals: ${input.onboarding?.goals.join("; ") ?? "—"}
-Blockers from setup: ${input.onboarding?.blockers.join("; ") || "—"}
-Life mode: ${input.onboarding?.life_mode ?? "—"} | Energy: ${input.onboarding?.energy_level ?? "—"}
-Availability: ${input.onboarding?.availability_min ?? "—"} min/day
-Active habits (${input.activeHabits.length}):
-${habitStats.join("\n") || "—"}
-Last 14 days — overall: ${allDone.length} completed, ${allSkipped.length} skipped${overallRate !== null ? `, ${overallRate}% rate` : ""}
-${input.mood ? `Current mood (1-5): ${input.mood}` : ""}
-${input.blocker ? `Current blocker: ${input.blocker}` : ""}
+Preferred name (address user by this): ${preferredName ?? "—"}
+Goals: ${onboarding?.goals.join("; ") ?? "—"}
+Blockers from setup: ${onboarding?.blockers.join("; ") || "—"}
+Life mode(s): ${lifeModeText} | Energy baseline: ${onboarding?.energy_level ?? "—"}
+Daily availability: ${onboarding?.availability_min ?? "—"} min
+${mood ? `Current mood: ${mood}/5` : ""}${blocker ? ` | Current blocker: ${blocker}` : ""}
+
+Today (${today}): ${todayDone} completed so far
+14-day overall: ${allDone} completed, ${allSkipped} skipped — ${overallRate} rate
+${bestWindow ? `Best time window: ${bestWindow[0].replace(/_/g, " ")} (${Math.round((bestWindow[1].done / bestWindow[1].total) * 100)}% success rate)` : ""}
+${overallMoodLine}
+
+Active habits (${activeHabits.length}):
+${habitLines.join("\n") || "No active habits."}
 [/CONTEXT]`;
 }
 

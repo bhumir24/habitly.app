@@ -145,14 +145,14 @@ export interface WeeklySummary {
   total_completed: number;
   total_skipped: number;
   streak_days: number;
+  weekday_rate: number | null;
+  weekend_rate: number | null;
   most_skipped: Array<{ habit_id: string; title: string; count: number }>;
   best_windows: Array<{ window: TimeOfDay; completion_rate: number }>;
   mood_avg: number | null;
   mood_trend: Array<{ date: string; mood: number }>;
   valid_blockers: string[];
   excuses: string[];
-  weekday_rate: number | null;
-  weekend_rate: number | null;
   per_habit: Array<{
     habit_id: string;
     title: string;
@@ -161,6 +161,7 @@ export interface WeeklySummary {
     skipped: number;
     rate: number;
     streak?: number;
+    days?: Array<{ date: string; status: "completed" | "skipped" | "none" }>;
   }>;
 }
 
@@ -175,6 +176,19 @@ export interface Subscription {
 }
 
 // ------ AI shapes -------------------------------------------------
+
+export interface HabitEdit {
+  habit_id: string;
+  title: string;
+  description: string;
+  patch: {
+    duration_minutes?: number;
+    preferred_time?: TimeOfDay;
+    frequency?: HabitFrequency;
+    difficulty?: Difficulty;
+    fallback_habit?: string;
+  };
+}
 
 export interface GeneratedHabit {
   title: string;

@@ -26,6 +26,8 @@ export interface AIProvider {
       life_mode: string;
       energy_baseline: string;
       timezone: string;
+      /** First name from profile full_name — for addressing the user naturally */
+      first_name?: string;
     };
     onboarding: OnboardingResponse | null;
     activeHabits: Habit[];
@@ -49,11 +51,16 @@ export interface AIProvider {
 export async function getAIProvider(): Promise<AIProvider> {
   const configured = (process.env.AI_PROVIDER ?? "mock").toLowerCase();
 
+  if (configured === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    const { AnthropicProvider } = await import("./anthropic-provider");
+    return new AnthropicProvider();
+  }
+
   if (configured === "openai" && process.env.OPENAI_API_KEY) {
     const { OpenAIProvider } = await import("./openai-provider");
     return new OpenAIProvider();
   }
-  // Anthropic integration point — implement ./anthropic-provider when needed.
+
   const { MockProvider } = await import("./mock-provider");
   return new MockProvider();
 }

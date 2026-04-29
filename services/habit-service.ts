@@ -1,11 +1,20 @@
 // Pure helpers around habit/log collections. DB-agnostic.
 import type { Habit, HabitLog, TimeOfDay, WeeklySummary } from "@/types";
-import { isHabitScheduledToday, mondayOf, toISODate } from "@/lib/date";
-import { addDays } from "date-fns";
+import {
+  calendarDateInTimeZone,
+  dayOfWeekForCalendarDate,
+  isHabitScheduledForCalendarDay,
+  mondayOfCalendarWeekContaining,
+  nextCalendarDay,
+  prevCalendarDay,
+} from "@/lib/date";
 
-export function habitsDueToday(habits: Habit[], date: Date = new Date()) {
+export function habitsDueToday(habits: Habit[], timeZone: string) {
+  const iso = calendarDateInTimeZone(timeZone);
   return habits.filter(
-    (h) => h.is_active && isHabitScheduledToday(h.frequency, h.custom_days, date)
+    (h) =>
+      h.is_active &&
+      isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
   );
 }
 
@@ -22,36 +31,27 @@ export function logsByDate(logs: HabitLog[]) {
 export function computeStreak(
   habits: Habit[],
   logs: HabitLog[],
-  endDate: Date = new Date()
+  endDate: Date = new Date(),
+  timeZone = "UTC"
 ): number {
-  // Days where at least one scheduled habit was completed.
   const byDate = logsByDate(logs);
   let streak = 0;
-  for (let i = 0; i < 365; i++) {
-    const d = addDays(endDate, -i);
-    const iso = toISODate(d);
-    const scheduled = habitsDueToday(habits, d);
-    if (!scheduled.length) continue;
+  let iso = calendarDateInTimeZone(timeZone, endDate);
+  for (let step = 0; step < 365; step++) {
+    const scheduled = habits.filter(
+      (h) =>
+        h.is_active &&
+        isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
+    );
+    if (!scheduled.length) {
+      iso = prevCalendarDay(iso);
+      continue;
+    }
     const dayLogs = byDate.get(iso) ?? [];
     const completedCount = dayLogs.filter((l) => l.status === "completed").length;
     if (completedCount >= 1) streak++;
     else break;
-  }
-  return streak;
-}
-
-function computeHabitStreak(habit: Habit, allLogs: HabitLog[], endDate: Date = new Date()): number {
-  const completedDates = new Set(
-    allLogs
-      .filter((l) => l.habit_id === habit.id && l.status === "completed")
-      .map((l) => l.completion_date)
-  );
-  let streak = 0;
-  for (let i = 0; i < 90; i++) {
-    const d = addDays(endDate, -i);
-    if (!isHabitScheduledToday(habit.frequency, habit.custom_days, d)) continue;
-    if (completedDates.has(toISODate(d))) streak++;
-    else break;
+    iso = prevCalendarDay(iso);
   }
   return streak;
 }
@@ -59,19 +59,30 @@ function computeHabitStreak(habit: Habit, allLogs: HabitLog[], endDate: Date = n
 export function completionRate(
   habits: Habit[],
   logs: HabitLog[],
-  days: number
+  days: number,
+  timeZone = "UTC"
 ): number {
   let scheduled = 0;
   let completed = 0;
-  const end = new Date();
+  let iso = calendarDateInTimeZone(timeZone);
   for (let i = 0; i < days; i++) {
-    const d = addDays(end, -i);
-    const iso = toISODate(d);
-    const dueIds = new Set(habitsDueToday(habits, d).map((h) => h.id));
+    const dueIds = new Set(
+      habits
+        .filter(
+          (h) =>
+            h.is_active &&
+            isHabitScheduledForCalendarDay(h.frequency, h.custom_days, iso, timeZone)
+        )
+        .map((h) => h.id)
+    );
     scheduled += dueIds.size;
     completed += logs.filter(
-      (l) => l.completion_date === iso && l.status === "completed" && dueIds.has(l.habit_id)
+      (l) =>
+        l.completion_date === iso &&
+        l.status === "completed" &&
+        dueIds.has(l.habit_id)
     ).length;
+    iso = prevCalendarDay(iso);
   }
   return scheduled === 0 ? 0 : completed / scheduled;
 }
@@ -79,11 +90,23 @@ export function completionRate(
 export function buildWeeklySummary(
   habits: Habit[],
   logs: HabitLog[],
-  weekStart: Date = mondayOf(),
-  allLogs?: HabitLog[]
+  timeZone: string,
+  options?: {
+    weekMondayISO?: string;
+    dailyMoods?: Array<{ mood_date: string; mood: number }>;
+  }
 ): WeeklySummary {
+  const tz = timeZone?.trim() || "UTC";
+  const mondayStr =
+    options?.weekMondayISO ??
+    mondayOfCalendarWeekContaining(calendarDateInTimeZone(tz), tz);
+
   const weekDays: string[] = [];
-  for (let i = 0; i < 7; i++) weekDays.push(toISODate(addDays(weekStart, i)));
+  let d = mondayStr;
+  for (let i = 0; i < 7; i++) {
+    weekDays.push(d);
+    d = nextCalendarDay(d);
+  }
 
   const inWeek = logs.filter((l) => weekDays.includes(l.completion_date));
   let totalScheduled = 0;
@@ -95,9 +118,13 @@ export function buildWeeklySummary(
   let weekendCompleted = 0;
 
   for (const day of weekDays) {
-    const d = new Date(day + "T12:00:00");
-    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-    const due = habitsDueToday(habits, d);
+    const dow = dayOfWeekForCalendarDate(day, tz);
+    const isWeekend = dow === 0 || dow === 6;
+    const due = habits.filter(
+      (h) =>
+        h.is_active &&
+        isHabitScheduledForCalendarDay(h.frequency, h.custom_days, day, tz)
+    );
     const dayLogs = inWeek.filter((l) => l.completion_date === day);
     const completedCount = dayLogs.filter((l) => l.status === "completed").length;
 
@@ -114,11 +141,26 @@ export function buildWeeklySummary(
     }
   }
 
-  const logsForStreak = allLogs ?? logs;
-
   const per_habit = habits.map((h) => {
     const c = inWeek.filter((l) => l.habit_id === h.id && l.status === "completed").length;
     const s = inWeek.filter((l) => l.habit_id === h.id && l.status === "skipped").length;
+    const daysArr = weekDays.map((day) => {
+      const log = inWeek.find((l) => l.habit_id === h.id && l.completion_date === day);
+      const status =
+        log?.status === "completed"
+          ? "completed"
+          : log?.status === "skipped"
+          ? "skipped"
+          : "none";
+      return { date: day, status } as { date: string; status: "completed" | "skipped" | "none" };
+    });
+    // Streak: consecutive completed days from the most recent day backwards (skip unscheduled "none" days)
+    let streak = 0;
+    for (let i = daysArr.length - 1; i >= 0; i--) {
+      if (daysArr[i].status === "completed") streak++;
+      else if (daysArr[i].status === "skipped") break;
+      // "none" = not scheduled that day, keep counting back
+    }
     return {
       habit_id: h.id,
       title: h.title,
@@ -126,7 +168,8 @@ export function buildWeeklySummary(
       completed: c,
       skipped: s,
       rate: c + s === 0 ? 0 : c / (c + s),
-      streak: computeHabitStreak(h, logsForStreak),
+      streak,
+      days: daysArr,
     };
   });
 
@@ -150,10 +193,19 @@ export function buildWeeklySummary(
     .sort((a, b) => b.completion_rate - a.completion_rate)
     .slice(0, 3);
 
-  const moods = inWeek.map((l) => l.mood).filter((m): m is number => typeof m === "number");
-  const mood_avg = moods.length ? moods.reduce((s, m) => s + m, 0) / moods.length : null;
+  // Prefer daily_moods entries; fall back to averaging mood from habit_logs
+  const dailyMoodsMap = new Map(
+    (options?.dailyMoods ?? []).map((m) => [m.mood_date, m.mood])
+  );
+  const moodSources: number[] = options?.dailyMoods?.length
+    ? options.dailyMoods.filter((m) => weekDays.includes(m.mood_date)).map((m) => m.mood)
+    : inWeek.map((l) => l.mood).filter((m): m is number => typeof m === "number");
+  const mood_avg = moodSources.length
+    ? moodSources.reduce((s, m) => s + m, 0) / moodSources.length
+    : null;
 
   const mood_trend = weekDays.map((day) => {
+    if (dailyMoodsMap.has(day)) return { date: day, mood: dailyMoodsMap.get(day)! };
     const ms = inWeek.filter((l) => l.completion_date === day && l.mood != null);
     const avg = ms.length ? ms.reduce((s, l) => s + (l.mood ?? 0), 0) / ms.length : 0;
     return { date: day, mood: Number(avg.toFixed(2)) };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Loader2, RefreshCw, Check, Clock, Zap, Sparkles } from "lucide-react";
+import { Plus, Loader2, RefreshCw, Check, Clock, Zap, Sparkles, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,10 +24,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CATEGORIES, DIFFICULTIES, FREQUENCIES, TIME_WINDOWS } from "@/lib/constants";
 import { createHabit, reactivateHabit, addGeneratedHabit } from "@/actions/habits";
+import { Switch } from "@/components/ui/switch";
 import { generatePlan } from "@/actions/onboarding";
 import { cn } from "@/lib/utils";
 import type { HabitInput } from "@/lib/validations";
 import type { Habit, GeneratedHabit } from "@/types";
+
+const IDEAL_TIMES: Record<string, string> = {
+  early_morning: "06:30", morning: "08:00", midday: "12:30",
+  afternoon: "15:30", evening: "19:00", night: "22:30", any: "09:00",
+};
 
 const DEFAULTS: HabitInput = {
   title: "",
@@ -62,6 +68,8 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
   const [form, setForm] = useState<HabitInput>(DEFAULTS);
   const [formError, setFormError] = useState<string | null>(null);
   const [isPendingForm, startFormTransition] = useTransition();
+  const [remind, setRemind] = useState(false);
+  const [remindAt, setRemindAt] = useState("08:00");
 
   // AI tab state
   const [aiList, setAiList] = useState<AISuggestion[]>(
@@ -77,17 +85,26 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
     setFormError(null);
     setAiError(null);
     setAdded(new Set());
+    setRemind(false);
+    setRemindAt("08:00");
   };
 
-  const set = <K extends keyof HabitInput>(k: K, v: HabitInput[K]) =>
+  const set = <K extends keyof HabitInput>(k: K, v: HabitInput[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
+    if (k === "preferred_time" && !remind) {
+      setRemindAt(IDEAL_TIMES[v as string] ?? "09:00");
+    }
+  };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) { setFormError("Title is required"); return; }
     setFormError(null);
     startFormTransition(async () => {
-      const res = await createHabit(form);
+      const res = await createHabit(
+        form,
+        remind ? { enabled: true, remindAt } : undefined
+      );
       if (!res.ok) { setFormError(res.error); return; }
       setOpen(false);
       setForm(DEFAULTS);
@@ -231,16 +248,39 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="nh-dur">Duration (minutes)</Label>
-                <Input
-                  id="nh-dur"
-                  type="number"
-                  min={1}
-                  max={240}
-                  value={form.duration_minutes}
-                  onChange={(e) => set("duration_minutes", Math.max(1, Number(e.target.value)))}
-                  className="w-28"
-                />
+                <Label>Duration (hours + mins)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="nh-dur-hours"
+                    type="number"
+                    min={0}
+                    max={4}
+                    value={Math.floor(form.duration_minutes / 60)}
+                    onChange={(e) => {
+                      const hours = Math.max(0, Math.min(4, Number(e.target.value || 0)));
+                      const mins = form.duration_minutes % 60;
+                      const total = Math.max(1, Math.min(240, hours * 60 + mins));
+                      set("duration_minutes", total);
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">h</span>
+                  <Input
+                    id="nh-dur-mins"
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={form.duration_minutes % 60}
+                    onChange={(e) => {
+                      const mins = Math.max(0, Math.min(59, Number(e.target.value || 0)));
+                      const hours = Math.floor(form.duration_minutes / 60);
+                      const total = Math.max(1, Math.min(240, hours * 60 + mins));
+                      set("duration_minutes", total);
+                    }}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">m</span>
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -257,6 +297,31 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
                   maxLength={140}
                   className="resize-none text-sm"
                 />
+              </div>
+
+              {/* Reminder toggle */}
+              <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <Bell className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm">Send me a reminder</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {remind && (
+                    <input
+                      type="time"
+                      value={remindAt}
+                      onChange={(e) => setRemindAt(e.target.value)}
+                      className="h-8 rounded-md border px-2 text-sm"
+                    />
+                  )}
+                  <Switch
+                    checked={remind}
+                    onCheckedChange={(v) => {
+                      setRemind(v);
+                      if (v) setRemindAt(IDEAL_TIMES[form.preferred_time] ?? "09:00");
+                    }}
+                  />
+                </div>
               </div>
 
               {formError && <p className="text-sm text-destructive">{formError}</p>}

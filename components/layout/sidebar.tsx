@@ -11,7 +11,7 @@ import {
   LogOut,
   Target,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, firstNameFromFullName } from "@/lib/utils";
 import { logout } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,9 +32,10 @@ export function Sidebar({
   tier: PlanTier;
 }) {
   const path = usePathname();
+  const shortName = firstNameFromFullName(fullName);
 
   return (
-    <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r bg-card/50 px-3 py-5">
+    <aside className="sticky top-0 z-10 flex h-screen w-64 shrink-0 flex-col border-r border-border/80 bg-card/85 px-3 py-5 backdrop-blur-md supports-[backdrop-filter]:bg-card/70">
       <Link href="/dashboard" className="mb-6 flex items-center gap-2 px-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Target className="h-4 w-4" />
@@ -79,7 +80,7 @@ export function Sidebar({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {tier === "premium"
-              ? "Advanced coach, deep reports, and smart reminders."
+              ? "Advanced coach, deep reports, and adaptive planning."
               : "Go deeper with adaptive coaching and reports."}
           </p>
         </Link>
@@ -87,7 +88,7 @@ export function Sidebar({
         <div className="flex items-center justify-between rounded-md border px-3 py-2">
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">
-              {fullName ?? "Your account"}
+              {shortName ?? fullName ?? "Your account"}
             </div>
             <Badge
               variant={tier === "premium" ? "default" : "secondary"}
@@ -97,8 +98,9 @@ export function Sidebar({
             </Badge>
           </div>
           <form action={logout}>
-            <Button variant="ghost" size="icon" type="submit" aria-label="Log out">
-              <LogOut className="h-4 w-4" />
+            <Button variant="ghost" size="sm" type="submit" className="gap-1.5 text-muted-foreground">
+              <LogOut className="h-3.5 w-3.5" />
+              Log out
             </Button>
           </form>
         </div>

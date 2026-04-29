@@ -60,12 +60,13 @@ export function PricingCards({ currentTier }: { currentTier: PlanTier }) {
           <p className="text-sm text-muted-foreground">The full adaptive coach.</p>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Feature>Everything in Free</Feature>
-          <Feature>Advanced AI coaching (memory + proactive)</Feature>
+          <Feature>Unlimited habits (vs. 5 on Free)</Feature>
+          <Feature>Unlimited coach messages (vs. 10/day on Free)</Feature>
+          <Feature>Advanced AI coaching with persistent memory</Feature>
           <Feature>Deep adaptive planning (recovery weeks, progressions)</Feature>
-          <Feature>Detailed reports: best windows, mood trends, blockers</Feature>
-          <Feature>Unlimited habits & coach messages</Feature>
-          <Feature>Smart reminders (context-aware)</Feature>
+          <Feature>Detailed reports: best windows &amp; mood trends</Feature>
+          <Feature>Coach proactively surfaces insights & nudges</Feature>
+          <Feature>Priority support</Feature>
           <Button
             disabled={tier === "premium" || isPending}
             onClick={() => change("premium")}

@@ -30,7 +30,6 @@ export class OpenAIProvider implements AIProvider {
       const completion = await this.client.chat.completions.create({
         model: this.model,
         response_format: { type: "json_object" },
-        temperature: 0.6,
         messages: [
           { role: "system", content: PLAN_SYSTEM },
           { role: "user", content: planUserPrompt(input.onboarding) },
@@ -49,10 +48,8 @@ export class OpenAIProvider implements AIProvider {
     try {
       const completion = await this.client.chat.completions.create({
         model: this.model,
-        temperature: 0.5,
         messages: [
-          { role: "system", content: COACH_SYSTEM },
-          { role: "system", content: coachContextBlock(input) },
+          { role: "system", content: COACH_SYSTEM + "\n\n" + coachContextBlock(input) },
           ...historyForModel(input.history),
           { role: "user", content: input.userMessage },
         ],
@@ -60,7 +57,8 @@ export class OpenAIProvider implements AIProvider {
       const text = completion.choices[0]?.message?.content?.trim();
       if (!text) throw new Error("empty");
       return text;
-    } catch {
+    } catch (err) {
+      console.error("[OpenAIProvider] coachReply failed:", err);
       return this.fallback.coachReply(input);
     }
   }
@@ -76,7 +74,6 @@ export class OpenAIProvider implements AIProvider {
       const completion = await this.client.chat.completions.create({
         model: this.model,
         response_format: { type: "json_object" },
-        temperature: 0.5,
         messages: [
           { role: "system", content: WEEKLY_SYSTEM },
           { role: "user", content: weeklyUserPrompt(input.summary, input.onboarding) },
