@@ -38,12 +38,14 @@ async function requestBrowserNotification(): Promise<boolean> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
   try {
     const reg = await navigator.serviceWorker.register("/sw.js");
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) return true;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-    });
+    // Get existing or create new subscription, then always upsert to DB
+    // (covers the case where permission was granted before push_subscriptions table existed)
+    const sub =
+      (await reg.pushManager.getSubscription()) ??
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      }));
     await savePushSubscription(sub.toJSON());
     return true;
   } catch {
@@ -82,7 +84,7 @@ export function SettingsForm({
       const existing = reminderByHabit.get(h.id);
       return existing
         ? { id: existing.id, habit_id: h.id, remind_at: existing.remind_at, enabled: existing.enabled, channel: existing.channel }
-        : { habit_id: h.id, remind_at: IDEAL[h.preferred_time] ?? "09:00", enabled: false, channel: "in_app" as const };
+        : { habit_id: h.id, remind_at: h.scheduled_at?.slice(0, 5) ?? IDEAL[h.preferred_time] ?? "09:00", enabled: false, channel: "in_app" as const };
     })
   );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
