@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,23 +86,27 @@ export function SettingsForm({
     })
   );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
+  const [detectedTz, setDetectedTz] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [testSent, setTestSent] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
   useEffect(() => {
     if (timezoneTouched) return;
-    if (p.timezone && p.timezone !== "UTC") return;
     try {
       const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (localTz && localTz !== p.timezone) {
+      if (!localTz) return;
+      if (localTz !== p.timezone) {
+        setDetectedTz(localTz);
         setP((prev) => ({ ...prev, timezone: localTz }));
       }
     } catch {
       // Ignore Intl availability edge cases.
     }
-  }, [p.timezone, timezoneTouched]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setP(profile);
@@ -169,9 +173,11 @@ export function SettingsForm({
           </div>
           <div>
             <Label htmlFor="profile-timezone-input">Timezone</Label>
-            <p className="mb-1.5 text-xs text-muted-foreground">
-              Type to search or open the list. Saved timezone drives “today” on your dashboard.
-            </p>
+            {detectedTz && detectedTz !== profile.timezone && (
+              <p className="mb-1.5 text-xs text-amber-600 font-medium">
+                Timezone auto-detected as <strong>{detectedTz}</strong> — hit Save to apply.
+              </p>
+            )}
             <TimezoneCombobox
               id="profile-timezone-input"
               options={timezoneOptions}
@@ -325,11 +331,22 @@ export function SettingsForm({
       <div className="flex flex-col items-end gap-2">
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
         <div className="flex items-center gap-3">
-        {saved && <Badge variant="success">Saved</Badge>}
-        <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save
-        </Button>
+          {testSent && <Badge variant="secondary">Test email sent</Badge>}
+          {saved && <Badge variant="success">Saved</Badge>}
+          <Button
+            variant="outline"
+            onClick={async () => {
+              const res = await fetch("/api/reminders/test-email");
+              if (res.ok) { setTestSent(true); setTimeout(() => setTestSent(false), 3000); }
+            }}
+          >
+            <Send className="h-4 w-4" />
+            Test email
+          </Button>
+          <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save
+          </Button>
         </div>
       </div>
     </div>

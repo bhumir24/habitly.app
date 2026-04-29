@@ -7,7 +7,6 @@ import {
   nextCalendarDay,
   prevCalendarDay,
 } from "@/lib/date";
-import { addDays } from "date-fns";
 
 export function habitsDueToday(habits: Habit[], timeZone: string) {
   const iso = calendarDateInTimeZone(timeZone);
@@ -91,7 +90,7 @@ export function buildWeeklySummary(
   habits: Habit[],
   logs: HabitLog[],
   timeZone: string,
-  options?: { weekMondayISO?: string }
+  options?: { weekMondayISO?: string; dailyMoods?: Array<{ mood_date: string; mood: number }> }
 ): WeeklySummary {
   const tz = timeZone?.trim() || "UTC";
   const mondayStr =
@@ -125,13 +124,12 @@ export function buildWeeklySummary(
   const per_habit = habits.map((h) => {
     const c = inWeek.filter((l) => l.habit_id === h.id && l.status === "completed").length;
     const s = inWeek.filter((l) => l.habit_id === h.id && l.status === "skipped").length;
-    return {
-      habit_id: h.id,
-      title: h.title,
-      completed: c,
-      skipped: s,
-      rate: c + s === 0 ? 0 : c / (c + s),
-    };
+    const days = weekDays.map((day) => {
+      const log = inWeek.find((l) => l.habit_id === h.id && l.completion_date === day);
+      const status = log?.status === "completed" ? "completed" : log?.status === "skipped" ? "skipped" : "none";
+      return { date: day, status } as { date: string; status: "completed" | "skipped" | "none" };
+    });
+    return { habit_id: h.id, title: h.title, completed: c, skipped: s, rate: c + s === 0 ? 0 : c / (c + s), days };
   });
 
   const most_skipped = per_habit
@@ -154,10 +152,15 @@ export function buildWeeklySummary(
     .sort((a, b) => b.completion_rate - a.completion_rate)
     .slice(0, 3);
 
-  const moods = inWeek.map((l) => l.mood).filter((m): m is number => typeof m === "number");
-  const mood_avg = moods.length ? moods.reduce((s, m) => s + m, 0) / moods.length : null;
+  // Prefer daily_moods entries; fall back to averaging mood from habit_logs
+  const dailyMoodsMap = new Map((options?.dailyMoods ?? []).map((m) => [m.mood_date, m.mood]));
+  const moodSources: number[] = options?.dailyMoods?.length
+    ? options.dailyMoods.filter((m) => weekDays.includes(m.mood_date)).map((m) => m.mood)
+    : inWeek.map((l) => l.mood).filter((m): m is number => typeof m === "number");
+  const mood_avg = moodSources.length ? moodSources.reduce((s, m) => s + m, 0) / moodSources.length : null;
 
   const mood_trend = weekDays.map((day) => {
+    if (dailyMoodsMap.has(day)) return { date: day, mood: dailyMoodsMap.get(day)! };
     const ms = inWeek.filter((l) => l.completion_date === day && l.mood != null);
     const avg = ms.length ? ms.reduce((s, l) => s + (l.mood ?? 0), 0) / ms.length : 0;
     return { date: day, mood: Number(avg.toFixed(2)) };

@@ -80,7 +80,7 @@ export function Sidebar({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {tier === "premium"
-              ? "Advanced coach, deep reports, and smart reminders."
+              ? "Advanced coach, deep reports, and adaptive planning."
               : "Go deeper with adaptive coaching and reports."}
           </p>
         </Link>

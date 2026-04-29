@@ -14,6 +14,7 @@ import { AdaptationsPanel } from "@/components/habit/adaptations-panel";
 import { NewHabitDialog } from "@/components/habit/new-habit-dialog";
 import { PatternInsightCard, type PatternData } from "@/components/habit/pattern-insight-card";
 import { TimeGreeting } from "@/components/dashboard/time-greeting";
+import { MoodCheckIn } from "@/components/dashboard/mood-check-in";
 import {
   habitsDueToday,
   completionRate,
@@ -36,15 +37,19 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
   const supabase = createClient();
 
+  // Fetch profile first so we can use the user's timezone for today's date
+  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  const tz = profile?.timezone ?? "UTC";
+  const today = calendarDateInTimeZone(tz);
+
   const [
-    { data: profile },
     { data: habits },
     { data: logs },
     { data: onboarding },
     { data: reminders },
     { data: inactiveHabits },
+    { data: todayMoodRow },
   ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
     supabase
       .from("habits")
       .select("*")
@@ -77,12 +82,16 @@ export default async function DashboardPage() {
       .eq("source", "ai")
       .order("created_at", { ascending: false })
       .limit(6),
+    supabase
+      .from("daily_moods")
+      .select("mood")
+      .eq("user_id", user.id)
+      .eq("mood_date", today)
+      .maybeSingle(),
   ]);
 
   const hs = (habits ?? []) as Habit[];
   const ls = (logs ?? []) as HabitLog[];
-  const tz = profile?.timezone ?? "UTC";
-  const today = calendarDateInTimeZone(tz);
 
   const due = habitsDueToday(hs, tz);
   const todaysLogs = ls.filter((l) => l.completion_date === today);
@@ -184,6 +193,8 @@ export default async function DashboardPage() {
 
         {/* ── Right sidebar ── */}
         <div className="space-y-4">
+          <MoodCheckIn todayMood={todayMoodRow?.mood ?? null} />
+
           {adaptations.length > 0 && <AdaptationsPanel adaptations={adaptations} />}
 
           <PatternInsightCard pattern={pattern} />

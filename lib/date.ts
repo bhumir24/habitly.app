@@ -34,18 +34,25 @@ export function calendarDateInTimeZone(
   }
 }
 
+function utcIso(dt: Date): string {
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function prevCalendarDay(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() - 1);
-  return format(dt, "yyyy-MM-dd");
+  return utcIso(dt);
 }
 
 export function nextCalendarDay(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + 1);
-  return format(dt, "yyyy-MM-dd");
+  return utcIso(dt);
 }
 
 /** JS weekday 0=Sun … 6=Sat for a calendar date in `timeZone`. */

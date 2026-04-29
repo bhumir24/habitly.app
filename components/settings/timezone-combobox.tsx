@@ -22,16 +22,16 @@ export function TimezoneCombobox({
     options.find((o) => o.value === value)?.label ?? value ?? "UTC";
 
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(selectedLabel);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setQuery(selectedLabel);
-  }, [selectedLabel]);
-
+  // Close on outside click; restore query to empty on close
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -46,9 +46,9 @@ export function TimezoneCombobox({
     );
   }, [options, query]);
 
-  const pick = (iana: string, label: string) => {
+  const pick = (iana: string) => {
     onSelect(iana);
-    setQuery(label);
+    setQuery("");
     setOpen(false);
   };
 
@@ -56,7 +56,7 @@ export function TimezoneCombobox({
     <div ref={containerRef} className="relative z-30">
       <div
         className={cn(
-          "flex h-10 w-full items-center rounded-md border border-input bg-background shadow-sm ring-offset-background",
+          "flex h-10 w-full items-center rounded-md border border-input bg-background ring-offset-background",
           open && "ring-2 ring-ring ring-offset-2"
         )}
       >
@@ -67,12 +67,15 @@ export function TimezoneCombobox({
           aria-controls={`${id}-tz-list`}
           autoComplete="off"
           className="h-10 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-          value={query}
+          value={open ? query : selectedLabel}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setQuery("");
+            setOpen(true);
+          }}
           placeholder="Search or choose timezone…"
         />
         <button
@@ -82,6 +85,7 @@ export function TimezoneCombobox({
           className="flex h-10 w-10 shrink-0 items-center justify-center text-muted-foreground hover:bg-accent/50 rounded-r-md"
           onMouseDown={(e) => {
             e.preventDefault();
+            setQuery("");
             setOpen((o) => !o);
           }}
         >
@@ -110,7 +114,7 @@ export function TimezoneCombobox({
                   )}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    pick(o.value, o.label);
+                    pick(o.value);
                   }}
                 >
                   {o.label}

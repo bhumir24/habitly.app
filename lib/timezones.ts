@@ -1,37 +1,83 @@
-/**
- * Curated short list of common IANA timezones for settings.
- * Values are stored; labels are for display.
- */
-const BASIC: { value: string; label: string }[] = [
-  { value: "UTC", label: "UTC" },
-  { value: "America/Halifax", label: "Atlantic (Halifax)" },
-  { value: "America/New_York", label: "Eastern US (New York)" },
-  { value: "America/Chicago", label: "Central US (Chicago)" },
-  { value: "America/Denver", label: "Mountain US (Denver)" },
-  { value: "America/Phoenix", label: "Arizona (Phoenix)" },
-  { value: "America/Los_Angeles", label: "Pacific US (Los Angeles)" },
-  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
-  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
-  { value: "America/Toronto", label: "Eastern Canada (Toronto)" },
-  { value: "America/Vancouver", label: "Pacific Canada (Vancouver)" },
-  { value: "America/Mexico_City", label: "Mexico City" },
-  { value: "America/Sao_Paulo", label: "Brazil (São Paulo)" },
-  { value: "Europe/London", label: "UK (London)" },
-  { value: "Europe/Paris", label: "Central Europe (Paris)" },
-  { value: "Europe/Berlin", label: "Germany (Berlin)" },
-  { value: "Africa/Johannesburg", label: "South Africa (Johannesburg)" },
-  { value: "Asia/Dubai", label: "Gulf (Dubai)" },
-  { value: "Asia/Kolkata", label: "India (IST)" },
-  { value: "Asia/Singapore", label: "Singapore" },
-  { value: "Asia/Hong_Kong", label: "Hong Kong" },
-  { value: "Asia/Shanghai", label: "China (Shanghai)" },
-  { value: "Asia/Tokyo", label: "Japan (Tokyo)" },
-  { value: "Asia/Seoul", label: "Korea (Seoul)" },
-  { value: "Australia/Sydney", label: "Australia — Sydney" },
-  { value: "Australia/Melbourne", label: "Australia — Melbourne" },
-  { value: "Pacific/Auckland", label: "New Zealand (Auckland)" },
-];
+// Returns all IANA timezones supported by the runtime, sorted by UTC offset.
+// Labels include the UTC offset so users can find their zone easily.
+// Falls back to a curated list if Intl.supportedValuesOf is unavailable (older Node).
+
+function offsetLabel(tz: string): string {
+  try {
+    const now = new Date();
+    // Use Intl to get the actual offset
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "shortOffset",
+    }).formatToParts(now);
+    const offsetStr = parts.find((p) => p.type === "timeZoneName")?.value ?? "UTC";
+    const city = tz.split("/").pop()?.replace(/_/g, " ") ?? tz;
+    return `(${offsetStr}) ${city}`;
+  } catch {
+    return tz;
+  }
+}
+
+function getAllTimezones(): { value: string; label: string }[] {
+  let zones: string[];
+  try {
+    zones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+      .supportedValuesOf?.("timeZone") ?? [];
+  } catch {
+    zones = [];
+  }
+
+  if (zones.length === 0) {
+    // Fallback curated list for environments without supportedValuesOf
+    zones = [
+      "UTC",
+      "America/Halifax","America/New_York","America/Chicago","America/Denver",
+      "America/Phoenix","America/Los_Angeles","America/Anchorage","Pacific/Honolulu",
+      "America/Toronto","America/Vancouver","America/Mexico_City","America/Sao_Paulo",
+      "America/Argentina/Buenos_Aires","America/Lima","America/Bogota","America/Caracas",
+      "Europe/London","Europe/Dublin","Europe/Lisbon","Europe/Paris","Europe/Berlin",
+      "Europe/Amsterdam","Europe/Rome","Europe/Madrid","Europe/Zurich","Europe/Vienna",
+      "Europe/Stockholm","Europe/Oslo","Europe/Copenhagen","Europe/Helsinki",
+      "Europe/Warsaw","Europe/Prague","Europe/Budapest","Europe/Bucharest",
+      "Europe/Athens","Europe/Istanbul","Europe/Moscow","Europe/Kiev",
+      "Africa/Johannesburg","Africa/Cairo","Africa/Lagos","Africa/Nairobi",
+      "Africa/Accra","Africa/Casablanca",
+      "Asia/Dubai","Asia/Riyadh","Asia/Baghdad","Asia/Tehran","Asia/Karachi",
+      "Asia/Kolkata","Asia/Colombo","Asia/Dhaka","Asia/Kathmandu","Asia/Yangon",
+      "Asia/Bangkok","Asia/Ho_Chi_Minh","Asia/Jakarta","Asia/Singapore",
+      "Asia/Hong_Kong","Asia/Shanghai","Asia/Taipei","Asia/Manila",
+      "Asia/Seoul","Asia/Tokyo","Asia/Kuala_Lumpur",
+      "Australia/Perth","Australia/Darwin","Australia/Adelaide",
+      "Australia/Brisbane","Australia/Sydney","Australia/Melbourne",
+      "Pacific/Auckland","Pacific/Fiji","Pacific/Guam","Pacific/Tahiti",
+    ];
+  }
+
+  const result = zones.map((tz) => ({ value: tz, label: offsetLabel(tz) }));
+
+  // Sort by UTC offset then alphabetically
+  return result.sort((a, b) => {
+    const offsetA = getOffsetMinutes(a.value);
+    const offsetB = getOffsetMinutes(b.value);
+    if (offsetA !== offsetB) return offsetA - offsetB;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function getOffsetMinutes(tz: string): number {
+  try {
+    const now = new Date();
+    const utc = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
+    const local = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    return (local.getTime() - utc.getTime()) / 60000;
+  } catch {
+    return 0;
+  }
+}
+
+let _cache: { value: string; label: string }[] | null = null;
 
 export function getTimezoneSelectOptions(): { value: string; label: string }[] {
-  return BASIC;
+  if (!_cache) _cache = getAllTimezones();
+  return _cache;
 }

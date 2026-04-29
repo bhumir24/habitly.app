@@ -156,6 +156,7 @@ export interface WeeklySummary {
     completed: number;
     skipped: number;
     rate: number;
+    days?: Array<{ date: string; status: "completed" | "skipped" | "none" }>;
   }>;
 }
 
