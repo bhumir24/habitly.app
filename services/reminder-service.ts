@@ -127,6 +127,31 @@ function digestText(p: { time: string; date: string; habits: HabitDigestItem[] }
   ].join("\n");
 }
 
+type PushSub = { endpoint: string; p256dh: string; auth: string };
+
+export async function sendWebPush(
+  subscriptions: PushSub[],
+  payload: { title: string; body: string; url?: string }
+) {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const email = process.env.VAPID_EMAIL ?? "mailto:reminders@habitly.app";
+  if (!publicKey || !privateKey) {
+    console.warn("[sendWebPush] VAPID keys not set — skipping push");
+    return;
+  }
+  const { default: webpush } = await import("web-push");
+  webpush.setVapidDetails(email, publicKey, privateKey);
+  await Promise.allSettled(
+    subscriptions.map((sub) =>
+      webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        JSON.stringify(payload)
+      )
+    )
+  );
+}
+
 // Map preferred_time → sensible default clock time.
 const DEFAULTS: Record<TimeOfDay, string> = {
   early_morning: "06:30",

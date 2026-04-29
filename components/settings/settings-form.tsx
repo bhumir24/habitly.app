@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
+import { PushSubscribeButton } from "@/components/settings/push-subscribe-button";
 
 const MAX_LIFE_MODES = 2;
 
@@ -213,6 +214,9 @@ export function SettingsForm({
           <p className="text-xs text-muted-foreground">
             Set a time and delivery channel for each habit reminder.
           </p>
+          <div className="pt-1">
+            <PushSubscribeButton />
+          </div>
         </CardHeader>
         <CardContent className="space-y-2">
           {rem.length === 0 && (

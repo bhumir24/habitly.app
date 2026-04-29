@@ -3,7 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { ConsoleChannel, EmailChannel, shouldFire } from "@/services/reminder-service";
+import { ConsoleChannel, EmailChannel, shouldFire, sendWebPush } from "@/services/reminder-service";
 import type { Reminder } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -64,12 +64,23 @@ export async function GET(req: Request) {
     byUser.set(r.user_id, list);
   }
 
-  // Fetch emails for all users with due reminders
+  // Fetch emails and push subscriptions for all users with due reminders
   const allUserIds = [...byUser.keys()];
   const userEmailMap = new Map<string, string>();
   for (const uid of allUserIds) {
     const { data } = await admin.auth.admin.getUserById(uid);
     if (data?.user?.email) userEmailMap.set(uid, data.user.email);
+  }
+
+  const { data: pushSubs } = await admin
+    .from("push_subscriptions")
+    .select("user_id, endpoint, p256dh, auth")
+    .in("user_id", allUserIds);
+  const pushSubsByUser = new Map<string, typeof pushSubs>();
+  for (const sub of pushSubs ?? []) {
+    const list = pushSubsByUser.get(sub.user_id) ?? [];
+    list.push(sub);
+    pushSubsByUser.set(sub.user_id, list);
   }
 
   const emailChannel = new EmailChannel();
@@ -79,26 +90,33 @@ export async function GET(req: Request) {
 
   for (const [userId, userReminders] of byUser) {
     const email = userEmailMap.get(userId);
+    const subs = pushSubsByUser.get(userId) ?? [];
     const timeStr = userReminders[0].remind_at.slice(0, 5);
     const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
     const habitLines = userReminders.map((r) => {
       const h = habitMap.get(r.habit_id)!;
       return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
     });
+    const habitTitles = habitLines.map((h) => h.title).join(", ");
 
-    if (email) {
-      // Send one consolidated email for all due habits regardless of channel
-      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
+    // Send browser push notification if subscribed
+    if (subs.length > 0) {
+      const pushTitle = habitLines.length === 1
+        ? `⏰ Starting in 5 min: ${habitLines[0].title}`
+        : `⏰ ${habitLines.length} habits starting at ${timeStr}`;
+      await sendWebPush(subs, { title: pushTitle, body: habitTitles, url: "/dashboard" });
       fired++;
-    } else {
-      // No email address — fall back to console log
+    }
+
+    // Send consolidated email
+    if (email) {
+      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
+      if (subs.length === 0) fired++; // avoid double-counting if both sent
+    } else if (subs.length === 0) {
+      // No push, no email — fall back to console
       for (const r of userReminders) {
         const h = habitMap.get(r.habit_id)!;
-        await consoleChannel.send({
-          to: userId,
-          title: `⏰ Starting in 5 min: ${h.title}`,
-          body: `${h.duration_minutes} min`,
-        });
+        await consoleChannel.send({ to: userId, title: `⏰ Starting in 5 min: ${h.title}`, body: `${h.duration_minutes} min` });
       }
     }
 
