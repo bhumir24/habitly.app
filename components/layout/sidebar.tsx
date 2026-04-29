@@ -36,24 +36,17 @@ export function Sidebar({
 
   return (
     <aside className="sticky top-0 z-10 flex h-screen w-64 shrink-0 flex-col border-r border-border/80 bg-card/85 px-3 py-5 backdrop-blur-md supports-[backdrop-filter]:bg-card/70">
-      <div className="mb-6 flex items-center justify-between px-2">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Target className="h-4 w-4" />
+      <Link href="/dashboard" className="mb-6 flex items-center gap-2 px-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Target className="h-4 w-4" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold leading-tight">Habitly</div>
+          <div className="text-[11px] text-muted-foreground">
+            AI-Powered Habit Coach
           </div>
-          <div>
-            <div className="text-sm font-semibold leading-tight">Habitly</div>
-            <div className="text-[11px] text-muted-foreground">
-              AI-Powered Habit Coach
-            </div>
-          </div>
-        </Link>
-        <form action={logout}>
-          <Button variant="ghost" size="icon" type="submit" aria-label="Log out" title="Log out">
-            <LogOut className="h-4 w-4 text-muted-foreground" />
-          </Button>
-        </form>
-      </div>
+        </div>
+      </Link>
 
       <nav className="flex flex-col gap-1">
         {NAV.map(({ href, label, icon: Icon }) => {
@@ -92,8 +85,8 @@ export function Sidebar({
           </p>
         </Link>
 
-        <div className="flex items-center gap-3 rounded-md border px-3 py-2">
-          <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between rounded-md border px-3 py-2">
+          <div className="min-w-0">
             <div className="truncate text-sm font-medium">
               {shortName ?? fullName ?? "Your account"}
             </div>
@@ -104,6 +97,12 @@ export function Sidebar({
               {tier}
             </Badge>
           </div>
+          <form action={logout}>
+            <Button variant="ghost" size="sm" type="submit" className="gap-1.5 text-muted-foreground">
+              <LogOut className="h-3.5 w-3.5" />
+              Log out
+            </Button>
+          </form>
         </div>
       </div>
     </aside>

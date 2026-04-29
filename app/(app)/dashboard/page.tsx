@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AdaptationsPanel } from "@/components/habit/adaptations-panel";
 import { NewHabitDialog } from "@/components/habit/new-habit-dialog";
 import { PatternInsightCard, type PatternData } from "@/components/habit/pattern-insight-card";
+import { TimeGreeting } from "@/components/dashboard/time-greeting";
 import {
   habitsDueToday,
   completionRate,
@@ -109,7 +110,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <CompletionConfetti completed={completedToday} total={due.length} dateKey={today} />
       <PageHeader
-        title={`${greetingForTimeZone(zone)}${displayFirstName ? `, ${displayFirstName}` : ""}`}
+        title={<TimeGreeting firstName={displayFirstName} fallback={greetingForTimeZone(zone)} />}
         subtitle={subtitle}
       />
 

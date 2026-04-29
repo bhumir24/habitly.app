@@ -1,6 +1,7 @@
 // Reminder scheduling + notification delivery.
 // Add a new channel by implementing NotificationChannel and wiring it in the tick route.
 
+import { formatInTimeZone } from "date-fns-tz";
 import type { Habit, Reminder, TimeOfDay } from "@/types";
 
 export interface NotificationChannel {
@@ -142,14 +143,28 @@ export function idealReminderTime(habit: Pick<Habit, "preferred_time" | "schedul
   return DEFAULTS[habit.preferred_time] ?? "09:00";
 }
 
-export function shouldFire(reminder: Reminder, now: Date = new Date()): boolean {
+export function shouldFire(
+  reminder: Reminder,
+  now: Date = new Date(),
+  userTimezone = "UTC"
+): boolean {
   if (!reminder.enabled) return false;
   const [h, m] = reminder.remind_at.split(":").map(Number);
   // Fire 5 minutes before the scheduled time
   const totalMinutes = h * 60 + m - 5;
   const fireH = Math.floor(((totalMinutes % 1440) + 1440) % 1440 / 60);
   const fireM = ((totalMinutes % 1440) + 1440) % 1440 % 60;
-  if (now.getHours() !== fireH || Math.abs(now.getMinutes() - fireM) > 1) return false;
+  // Compare against the user's LOCAL time, not UTC server time
+  let localH: number;
+  let localM: number;
+  try {
+    localH = Number(formatInTimeZone(now, userTimezone, "H"));
+    localM = Number(formatInTimeZone(now, userTimezone, "m"));
+  } catch {
+    localH = now.getHours();
+    localM = now.getMinutes();
+  }
+  if (localH !== fireH || Math.abs(localM - fireM) > 1) return false;
   // Send at most once per hour — prevents double-fire if the cron overlaps the 2-min window
   if (reminder.last_sent_at) {
     const msSinceLast = now.getTime() - new Date(reminder.last_sent_at).getTime();

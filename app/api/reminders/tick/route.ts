@@ -32,8 +32,18 @@ export async function GET(req: Request) {
     .select("id, user_id, habit_id, remind_at, enabled, last_sent_at, channel")
     .eq("enabled", true);
 
+  // Fetch timezones for all users so shouldFire compares against local time
+  const allReminderUserIds = [...new Set((reminders ?? []).map((r) => r.user_id))];
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("id, timezone")
+    .in("id", allReminderUserIds);
+  const tzMap = new Map((profiles ?? []).map((p) => [p.id, p.timezone ?? "UTC"]));
+
   const now = new Date();
-  const due = (reminders ?? []).filter((r) => shouldFire(r as Reminder, now));
+  const due = (reminders ?? []).filter((r) =>
+    shouldFire(r as Reminder, now, tzMap.get(r.user_id) ?? "UTC")
+  );
   if (due.length === 0) return NextResponse.json({ ok: true, fired: 0 });
 
   // Fetch all habits referenced by due reminders

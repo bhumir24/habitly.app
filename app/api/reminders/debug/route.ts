@@ -17,18 +17,26 @@ export async function GET() {
     .select("id, user_id, habit_id, remind_at, enabled, last_sent_at, channel")
     .eq("enabled", true);
 
+  const userIds = [...new Set((reminders ?? []).map((r) => r.user_id))];
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("id, timezone")
+    .in("id", userIds);
+  const tzMap = new Map((profiles ?? []).map((p) => [p.id, p.timezone ?? "UTC"]));
+
   const now = new Date();
   const rows = (reminders ?? []).map((r) => {
+    const tz = tzMap.get(r.user_id) ?? "UTC";
     const [h, m] = r.remind_at.split(":").map(Number);
     const totalMinutes = h * 60 + m - 5;
     const fireH = Math.floor(((totalMinutes % 1440) + 1440) % 1440 / 60);
     const fireM = ((totalMinutes % 1440) + 1440) % 1440 % 60;
     return {
       habit_id: r.habit_id,
+      user_timezone: tz,
       remind_at: r.remind_at,
-      fires_at: `${String(fireH).padStart(2,"0")}:${String(fireM).padStart(2,"0")}`,
-      current_time: `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`,
-      would_fire: shouldFire(r as Reminder, now),
+      fires_at: `${String(fireH).padStart(2, "0")}:${String(fireM).padStart(2, "0")} (${tz})`,
+      would_fire: shouldFire(r as Reminder, now, tz),
       last_sent_at: r.last_sent_at,
     };
   });
