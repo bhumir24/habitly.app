@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Mail, Monitor } from "lucide-react";
 import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
 import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
@@ -133,7 +134,7 @@ export function SettingsForm({
       for (const r of rem) {
         const { error: remErr } = await supabase
           .from("reminders")
-          .update({ remind_at: r.remind_at, enabled: r.enabled })
+          .update({ remind_at: r.remind_at, enabled: r.enabled, channel: r.channel })
           .eq("id", r.id);
         if (remErr) {
           setSaveError(remErr.message);
@@ -231,29 +232,66 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle className="text-base">Reminders</CardTitle>
           <p className="text-xs text-muted-foreground">
-            In-app reminders. Push & email will be added.
+            Set a time and delivery channel for each habit reminder.
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
           {rem.length === 0 && (
-            <p className="text-sm text-muted-foreground">No reminders yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No reminders yet. Open a habit card on the Dashboard and enable its reminder to add one.
+            </p>
           )}
           {rem.map((r, i) => {
             const habit = habitMap.get(r.habit_id);
             return (
               <div
                 key={r.id}
-                className="flex items-center justify-between gap-3 rounded-md border p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
                     {habit?.title ?? "Archived habit"}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {habit?.duration_minutes ?? "?"}m · channel: {r.channel}
+                    {habit?.duration_minutes ?? "?"}m · {habit?.preferred_time?.replace(/_/g, " ") ?? "any time"}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Channel toggle: in_app vs email */}
+                  <div className="flex rounded-md border overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)))
+                      }
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1.5 transition",
+                        r.channel === "in_app"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:bg-accent"
+                      )}
+                      title="In-app notification"
+                    >
+                      <Monitor className="h-3 w-3" />
+                      In-app
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRem(rem.map((x, j) => (j === i ? { ...x, channel: "email" } : x)))
+                      }
+                      className={cn(
+                        "flex items-center gap-1 border-l px-2.5 py-1.5 transition",
+                        r.channel === "email"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:bg-accent"
+                      )}
+                      title="Email reminder"
+                    >
+                      <Mail className="h-3 w-3" />
+                      Email
+                    </button>
+                  </div>
                   <Input
                     type="time"
                     value={r.remind_at.slice(0, 5)}
