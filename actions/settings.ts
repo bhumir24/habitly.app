@@ -4,13 +4,21 @@ import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { revalidateTrackerPages } from "@/actions/revalidate";
 import type { EnergyLevel, LifeMode, Reminder } from "@/types";
 
+export interface ReminderSaveItem {
+  id?: string; // undefined = new row to insert
+  habit_id: string;
+  remind_at: string;
+  enabled: boolean;
+  channel: Reminder["channel"];
+}
+
 export interface SaveSettingsInput {
   full_name: string | null;
   timezone: string;
   life_mode: LifeMode;
   energy_baseline: EnergyLevel;
   lifeModes: LifeMode[];
-  reminders: Pick<Reminder, "id" | "remind_at" | "enabled" | "channel">[];
+  reminders: ReminderSaveItem[];
   hasOnboarding: boolean;
   onboardingRoutine: Record<string, unknown>;
 }
@@ -51,14 +59,28 @@ export async function saveSettings(
     if (onboardErr) return { ok: false, error: onboardErr.message };
   }
 
-  // Save reminder changes
+  // Save reminder changes — update existing rows, insert new ones
   for (const r of input.reminders) {
-    const { error: remErr } = await supabase
-      .from("reminders")
-      .update({ remind_at: r.remind_at, enabled: r.enabled, channel: r.channel })
-      .eq("id", r.id)
-      .eq("user_id", user.id); // ensure user owns this reminder
-    if (remErr) return { ok: false, error: remErr.message };
+    if (r.id) {
+      const { error: remErr } = await supabase
+        .from("reminders")
+        .update({ remind_at: r.remind_at, enabled: r.enabled, channel: r.channel })
+        .eq("id", r.id)
+        .eq("user_id", user.id);
+      if (remErr) return { ok: false, error: remErr.message };
+    } else {
+      // New reminder row (habit had none before)
+      const { error: insErr } = await supabase
+        .from("reminders")
+        .insert({
+          user_id: user.id,
+          habit_id: r.habit_id,
+          remind_at: r.remind_at,
+          enabled: r.enabled,
+          channel: r.channel,
+        });
+      if (insErr) return { ok: false, error: insErr.message };
+    }
   }
 
   await revalidateTrackerPages();

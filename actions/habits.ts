@@ -5,6 +5,7 @@ import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { habitSchema, habitLogSchema, type HabitInput } from "@/lib/validations";
 import type { Adaptation } from "@/types";
 import { calendarDateInTimeZone } from "@/lib/date";
+import { idealReminderTime } from "@/services/reminder-service";
 
 export async function logHabit(input: {
   habit_id: string;
@@ -67,7 +68,10 @@ export async function updateHabit(id: string, patch: Partial<HabitInput> & { is_
   return { ok: true as const };
 }
 
-export async function createHabit(input: HabitInput) {
+export async function createHabit(
+  input: HabitInput,
+  reminder?: { enabled: boolean; remindAt: string }
+) {
   const parsed = habitSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "Invalid habit" };
 
@@ -81,6 +85,16 @@ export async function createHabit(input: HabitInput) {
     .select("id")
     .single();
   if (error) return { ok: false as const, error: error.message };
+
+  if (data?.id && reminder) {
+    await supabase.from("reminders").insert({
+      user_id: user.id,
+      habit_id: data.id,
+      remind_at: reminder.remindAt,
+      channel: "in_app",
+      enabled: reminder.enabled,
+    });
+  }
 
   revalidatePath("/dashboard");
   return { ok: true as const, id: data!.id };
@@ -109,7 +123,7 @@ export async function addGeneratedHabit(
   if (!user) return { ok: false as const, error: "Not authenticated" };
 
   const supabase = createClient();
-  const { error } = await supabase.from("habits").insert({
+  const { data, error } = await supabase.from("habits").insert({
     user_id: user.id,
     title: habit.title,
     purpose: habit.purpose,
@@ -121,8 +135,22 @@ export async function addGeneratedHabit(
     fallback_habit: habit.fallback_habit,
     source: "ai",
     is_active: true,
-  });
+  }).select("id").single();
   if (error) return { ok: false as const, error: error.message };
+
+  // Auto-create a reminder at the ideal time for this habit's preferred time
+  if (data?.id) {
+    await supabase.from("reminders").insert({
+      user_id: user.id,
+      habit_id: data.id,
+      remind_at: idealReminderTime({
+        preferred_time: habit.preferred_time,
+        scheduled_at: null,
+      }),
+      channel: "in_app",
+      enabled: true,
+    });
+  }
 
   revalidatePath("/dashboard");
   return { ok: true as const };

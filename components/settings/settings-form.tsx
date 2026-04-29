@@ -22,7 +22,7 @@ import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
-import { saveSettings } from "@/actions/settings";
+import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
 
 const MAX_LIFE_MODES = 2;
 
@@ -46,9 +46,19 @@ export function SettingsForm({
     const base = initialLifeModes.length ? initialLifeModes : [profile.life_mode];
     return base.slice(0, MAX_LIFE_MODES);
   });
-  // Only surface reminders for active habits (habits prop is already filtered to is_active)
-  const [rem, setRem] = useState<Reminder[]>(
-    reminders.filter((r) => habits.some((h) => h.id === r.habit_id))
+  // Build one row per active habit — use existing reminder if present, else sensible defaults
+  const IDEAL: Record<string, string> = {
+    early_morning: "06:30", morning: "08:00", midday: "12:30",
+    afternoon: "15:30", evening: "19:00", night: "22:30", any: "09:00",
+  };
+  const reminderByHabit = new Map(reminders.map((r) => [r.habit_id, r]));
+  const [rem, setRem] = useState<ReminderSaveItem[]>(
+    habits.map((h) => {
+      const existing = reminderByHabit.get(h.id);
+      return existing
+        ? { id: existing.id, habit_id: h.id, remind_at: existing.remind_at, enabled: existing.enabled, channel: existing.channel }
+        : { habit_id: h.id, remind_at: IDEAL[h.preferred_time] ?? "09:00", enabled: false, channel: "in_app" as const };
+    })
   );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -102,12 +112,7 @@ export function SettingsForm({
         life_mode: primary,
         energy_baseline: p.energy_baseline,
         lifeModes,
-        reminders: rem.map((r) => ({
-          id: r.id,
-          remind_at: r.remind_at,
-          enabled: r.enabled,
-          channel: r.channel,
-        })),
+        reminders: rem,
         hasOnboarding,
         onboardingRoutine,
       });
@@ -212,14 +217,14 @@ export function SettingsForm({
         <CardContent className="space-y-2">
           {rem.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No reminders yet. Open a habit card on the Dashboard and enable its reminder to add one.
+              No active habits yet. Add a habit on the Dashboard first.
             </p>
           )}
           {rem.map((r, i) => {
             const habit = habitMap.get(r.habit_id);
             return (
               <div
-                key={r.id}
+                key={r.id ?? r.habit_id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
               >
                 <div className="min-w-0 flex-1">
