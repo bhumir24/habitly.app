@@ -97,11 +97,11 @@ function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
     const ht = clean(h.title);
     // Exact title match
     if (ht === t) return true;
-    // One title is a substring of the other (both non-trivially short)
-    if (t.length > 6 && ht.length > 6 && (ht.includes(t) || t.includes(ht))) return true;
+    // One title is a substring of the other (covers "Gym" ↔ "Gym session")
+    if (t.length >= 3 && (ht.includes(t) || t.includes(ht))) return true;
     // Content-word overlap ≥ 50% of the shorter set
     const htWords = contentWords(ht);
-    if (htWords.length === 0) return false;
+    if (htWords.length === 0 || tWords.size === 0) return false;
     const overlap = htWords.filter((w) => tWords.has(w)).length;
     return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.6;
   });

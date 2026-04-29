@@ -136,7 +136,7 @@ EDIT an existing habit:
 
 ### RULE 6 — TAG FORMAT CONSTRAINTS
 - habit_id: copy EXACTLY from [id:...] in [CONTEXT]. Never invent one.
-- title: the habit name ONLY. Never include "as new habit", "as a habit", "habit" suffix, or any filler. "Gardening" not "Gardening as new habit". "Gym" not "Gym session habit".
+- title: use the EXACT name the user said. If they said "add Gym", the title is "Gym" — not "Workout session", not "Gym session", not "Strength training". Never rename a habit the user explicitly named. Only invent a title when the user gives no name at all (e.g., "add a morning run habit").
 - category: health | mind | productivity | learning | social | sleep | nutrition | movement | other
 - preferred_time: early_morning | morning | midday | afternoon | evening | night | any
 - frequency: daily | weekdays | weekends | 3x_week | 5x_week | custom
