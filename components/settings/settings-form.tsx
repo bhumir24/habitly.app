@@ -46,7 +46,10 @@ export function SettingsForm({
     const base = initialLifeModes.length ? initialLifeModes : [profile.life_mode];
     return base.slice(0, MAX_LIFE_MODES);
   });
-  const [rem, setRem] = useState<Reminder[]>(reminders);
+  // Only surface reminders for active habits (habits prop is already filtered to is_active)
+  const [rem, setRem] = useState<Reminder[]>(
+    reminders.filter((r) => habits.some((h) => h.id === r.habit_id))
+  );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -257,10 +260,10 @@ export function SettingsForm({
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:bg-accent"
                       )}
-                      title="Email reminder"
+                      title="Email notification"
                     >
                       <Mail className="h-3 w-3" />
-                      Email
+                      Email notification
                     </button>
                   </div>
                   <Input

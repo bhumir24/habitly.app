@@ -14,7 +14,7 @@ export default async function SettingsPage() {
   const [{ data: profile }, { data: habits }, { data: reminders }, { data: onboarding }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-      supabase.from("habits").select("*").eq("user_id", user.id),
+      supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true),
       supabase.from("reminders").select("*").eq("user_id", user.id).order("remind_at"),
       supabase.from("onboarding_responses").select("routine").eq("user_id", user.id).maybeSingle(),
     ]);

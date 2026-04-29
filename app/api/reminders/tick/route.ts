@@ -1,6 +1,5 @@
 // Cron target: called every minute (Vercel Cron or external scheduler).
-// Uses the Supabase service role key to bypass RLS for a system-wide sweep.
-// Routes each due reminder to the correct channel (in_app → console, email → Resend).
+// Sends one consolidated email per user listing all their due habits for that time slot.
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -9,10 +8,9 @@ import type { Reminder } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-// Reject requests that don't carry the shared cron secret (set in Vercel env).
 function isAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // dev: no secret configured
+  if (!secret) return true;
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
@@ -38,7 +36,7 @@ export async function GET(req: Request) {
   const due = (reminders ?? []).filter((r) => shouldFire(r as Reminder, now));
   if (due.length === 0) return NextResponse.json({ ok: true, fired: 0 });
 
-  // Fetch habits for all due reminders in one query
+  // Fetch all habits referenced by due reminders
   const habitIds = [...new Set(due.map((r) => r.habit_id))];
   const { data: habits } = await admin
     .from("habits")
@@ -46,10 +44,20 @@ export async function GET(req: Request) {
     .in("id", habitIds);
   const habitMap = new Map((habits ?? []).map((h) => [h.id, h]));
 
-  // Fetch email addresses for users who have email-channel reminders due
-  const emailUserIds = [...new Set(
-    due.filter((r) => r.channel === "email").map((r) => r.user_id)
-  )];
+  // Group due reminders by user
+  const byUser = new Map<string, typeof due>();
+  for (const r of due) {
+    const h = habitMap.get(r.habit_id);
+    if (!h?.is_active) continue;
+    const list = byUser.get(r.user_id) ?? [];
+    list.push(r);
+    byUser.set(r.user_id, list);
+  }
+
+  // Fetch emails for users who have at least one email-channel reminder
+  const emailUserIds = [...byUser.entries()]
+    .filter(([, rs]) => rs.some((r) => r.channel === "email"))
+    .map(([uid]) => uid);
   const userEmailMap = new Map<string, string>();
   for (const uid of emailUserIds) {
     const { data } = await admin.auth.admin.getUserById(uid);
@@ -58,28 +66,48 @@ export async function GET(req: Request) {
 
   const emailChannel = new EmailChannel();
   const consoleChannel = new ConsoleChannel();
+  const reminderIds: string[] = [];
   let fired = 0;
 
-  for (const r of due) {
-    const h = habitMap.get(r.habit_id);
-    if (!h?.is_active) continue;
+  for (const [userId, userReminders] of byUser) {
+    const emailReminders = userReminders.filter((r) => r.channel === "email");
+    const inAppReminders = userReminders.filter((r) => r.channel !== "email");
 
-    const title = `⏰ Time for: ${h.title}`;
-    const body = `${h.duration_minutes} min · Fallback if short on time: ${h.fallback_habit ?? "2-min version"}`;
-
-    if (r.channel === "email") {
-      const email = userEmailMap.get(r.user_id);
-      if (!email) continue;
-      await emailChannel.send({ to: email, title, body });
-    } else {
-      await consoleChannel.send({ to: r.user_id, title, body });
+    // Send one consolidated email for all email-channel habits due at this time
+    if (emailReminders.length > 0) {
+      const email = userEmailMap.get(userId);
+      if (email) {
+        const habitLines = emailReminders
+          .map((r) => {
+            const h = habitMap.get(r.habit_id)!;
+            return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
+          });
+        const timeStr = emailReminders[0].remind_at.slice(0, 5);
+        const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
+        emailReminders.forEach((r) => reminderIds.push(r.id));
+        fired++;
+      }
     }
 
+    // Log in-app reminders to console (real push channel goes here later)
+    for (const r of inAppReminders) {
+      const h = habitMap.get(r.habit_id)!;
+      await consoleChannel.send({
+        to: userId,
+        title: `⏰ Starting in 5 min: ${h.title}`,
+        body: `${h.duration_minutes} min`,
+      });
+      reminderIds.push(r.id);
+    }
+  }
+
+  // Mark all fired reminders as sent
+  if (reminderIds.length > 0) {
     await admin
       .from("reminders")
-      .update({ last_sent_at: new Date().toISOString() })
-      .eq("id", r.id);
-    fired++;
+      .update({ last_sent_at: now.toISOString() })
+      .in("id", reminderIds);
   }
 
   return NextResponse.json({ ok: true, fired });

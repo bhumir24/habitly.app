@@ -16,12 +16,24 @@ export class ConsoleChannel implements NotificationChannel {
   }
 }
 
+type HabitDigestItem = { title: string; duration: number; fallback: string | null };
+
 // Sends habit reminder emails via Resend (https://resend.com).
 // Requires RESEND_API_KEY and RESEND_FROM_EMAIL in environment.
 export class EmailChannel implements NotificationChannel {
   name = "email";
 
   async send(p: { to: string; title: string; body: string }) {
+    await this.sendDigest({
+      to: p.to,
+      time: "",
+      date: new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      habits: [{ title: p.title, duration: 0, fallback: p.body }],
+    });
+  }
+
+  // Sends one consolidated email listing all habits due at a given time.
+  async sendDigest(p: { to: string; time: string; date: string; habits: HabitDigestItem[] }) {
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM_EMAIL ?? "Habitly <reminders@habitly.app>";
     if (!apiKey) {
@@ -30,19 +42,31 @@ export class EmailChannel implements NotificationChannel {
     }
     const { Resend } = await import("resend");
     const resend = new Resend(apiKey);
+    const subject =
+      p.habits.length === 1
+        ? `⏰ Starting in 5 min: ${p.habits[0].title} — ${p.time}`
+        : `⏰ ${p.habits.length} habits starting at ${p.time} · ${p.date}`;
     const { error } = await resend.emails.send({
       from,
       to: p.to,
-      subject: p.title,
-      html: emailHtml(p.title, p.body),
-      text: `${p.title}\n\n${p.body}\n\nOpen Habitly: ${process.env.NEXT_PUBLIC_APP_URL ?? "https://habitly.app"}`,
+      subject,
+      html: digestHtml(p),
+      text: digestText(p),
     });
-    if (error) console.error("[EmailChannel] send failed:", error);
+    if (error) console.error("[EmailChannel] sendDigest failed:", error);
   }
 }
 
-function emailHtml(title: string, body: string): string {
+function digestHtml(p: { to: string; time: string; date: string; habits: HabitDigestItem[] }): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://habitly.app";
+  const rows = p.habits.map((h) => `
+    <tr>
+      <td style="padding:12px 0;border-bottom:1px solid #f3f4f6">
+        <p style="margin:0 0 2px;font-size:15px;font-weight:600;color:#111827">${h.title}</p>
+        <p style="margin:0;font-size:13px;color:#6b7280">${h.duration > 0 ? `${h.duration} min` : ""}${h.fallback ? ` · Fallback: ${h.fallback}` : ""}</p>
+      </td>
+    </tr>`).join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -57,8 +81,14 @@ function emailHtml(title: string, body: string): string {
         </tr>
         <tr>
           <td style="padding:32px">
-            <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;line-height:1.3">${title}</p>
-            <p style="margin:0 0 28px;font-size:15px;color:#6b7280;line-height:1.6">${body}</p>
+            <p style="margin:0 0 4px;font-size:13px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">
+              ${p.date}${p.time ? ` · ${p.time}` : ""}
+            </p>
+            <p style="margin:0 0 24px;font-size:22px;font-weight:700;color:#111827">
+              Starting in 5 minutes
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+            <div style="height:28px"></div>
             <a href="${appUrl}/dashboard"
                style="display:inline-block;background:#18181b;color:#ffffff;font-size:14px;font-weight:600;
                       text-decoration:none;padding:12px 24px;border-radius:8px">
@@ -69,7 +99,7 @@ function emailHtml(title: string, body: string): string {
         <tr>
           <td style="padding:16px 32px;border-top:1px solid #f3f4f6">
             <p style="margin:0;font-size:12px;color:#9ca3af">
-              You're receiving this because you enabled email reminders in
+              You enabled email reminders in
               <a href="${appUrl}/settings" style="color:#6b7280">Habitly Settings</a>.
             </p>
           </td>
@@ -79,6 +109,21 @@ function emailHtml(title: string, body: string): string {
   </table>
 </body>
 </html>`;
+}
+
+function digestText(p: { time: string; date: string; habits: HabitDigestItem[] }): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://habitly.app";
+  const lines = p.habits.map((h) =>
+    `• ${h.title}${h.duration > 0 ? ` — ${h.duration} min` : ""}${h.fallback ? `\n  Fallback: ${h.fallback}` : ""}`
+  );
+  return [
+    `${p.date}${p.time ? ` · ${p.time}` : ""}`,
+    `Starting in 5 minutes`,
+    "",
+    ...lines,
+    "",
+    `Log it now: ${appUrl}/dashboard`,
+  ].join("\n");
 }
 
 // Map preferred_time → sensible default clock time.
@@ -100,7 +145,17 @@ export function idealReminderTime(habit: Pick<Habit, "preferred_time" | "schedul
 export function shouldFire(reminder: Reminder, now: Date = new Date()): boolean {
   if (!reminder.enabled) return false;
   const [h, m] = reminder.remind_at.split(":").map(Number);
-  return now.getHours() === h && Math.abs(now.getMinutes() - m) <= 1;
+  // Fire 5 minutes before the scheduled time
+  const totalMinutes = h * 60 + m - 5;
+  const fireH = Math.floor(((totalMinutes % 1440) + 1440) % 1440 / 60);
+  const fireM = ((totalMinutes % 1440) + 1440) % 1440 % 60;
+  if (now.getHours() !== fireH || Math.abs(now.getMinutes() - fireM) > 1) return false;
+  // Send at most once per hour — prevents double-fire if the cron overlaps the 2-min window
+  if (reminder.last_sent_at) {
+    const msSinceLast = now.getTime() - new Date(reminder.last_sent_at).getTime();
+    if (msSinceLast < 60 * 60 * 1000) return false;
+  }
+  return true;
 }
 
 export async function fireDueReminders(
