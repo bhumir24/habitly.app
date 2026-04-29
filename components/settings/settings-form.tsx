@@ -16,42 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, BellRing } from "lucide-react";
+import { Mail } from "lucide-react";
 import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
 import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
-import { savePushSubscription, sendTestPush, sendTestEmail } from "@/actions/push";
+import { sendTestEmail } from "@/actions/push";
 
 const MAX_LIFE_MODES = 2;
-
-function urlBase64ToUint8Array(b64: string) {
-  const padding = "=".repeat((4 - (b64.length % 4)) % 4);
-  const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
-}
-
-async function requestBrowserNotification(): Promise<boolean> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
-  try {
-    const reg = await navigator.serviceWorker.register("/sw.js");
-    // Get existing or create new subscription, then always upsert to DB
-    // (covers the case where permission was granted before push_subscriptions table existed)
-    const sub =
-      (await reg.pushManager.getSubscription()) ??
-      (await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-      }));
-    await savePushSubscription(sub.toJSON());
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function SettingsForm({
   profile,
@@ -84,7 +58,7 @@ export function SettingsForm({
       const existing = reminderByHabit.get(h.id);
       return existing
         ? { id: existing.id, habit_id: h.id, remind_at: existing.remind_at, enabled: existing.enabled, channel: existing.channel }
-        : { habit_id: h.id, remind_at: h.scheduled_at?.slice(0, 5) ?? IDEAL[h.preferred_time] ?? "09:00", enabled: false, channel: "in_app" as const };
+        : { habit_id: h.id, remind_at: h.scheduled_at?.slice(0, 5) ?? IDEAL[h.preferred_time] ?? "09:00", enabled: false, channel: "email" as const };
     })
   );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
@@ -92,8 +66,6 @@ export function SettingsForm({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testEmailSent, setTestEmailSent] = useState(false);
-  const [testPushState, setTestPushState] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [testPushError, setTestPushError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -246,7 +218,7 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle className="text-base">Reminders</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Choose how you want to be notified for each habit. "Browser" sends a push notification; "Email" sends an email.
+            Set a time for each habit and we'll email you 5 minutes before it's scheduled to start.
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -271,46 +243,10 @@ export function SettingsForm({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {/* Channel toggle: in_app vs email */}
-                  <div className="flex rounded-md border overflow-hidden text-xs">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const granted = await requestBrowserNotification();
-                        if (granted) {
-                          setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)));
-                        } else {
-                          alert("Allow notifications in your browser settings, then try again.");
-                        }
-                      }}
-                      className={cn(
-                        "flex items-center gap-1 px-2.5 py-1.5 transition",
-                        r.channel === "in_app"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background text-muted-foreground hover:bg-accent"
-                      )}
-                      title="Browser push notification"
-                    >
-                      <BellRing className="h-3 w-3" />
-                      Browser
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRem(rem.map((x, j) => (j === i ? { ...x, channel: "email" } : x)))
-                      }
-                      className={cn(
-                        "flex items-center gap-1 border-l px-2.5 py-1.5 transition",
-                        r.channel === "email"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background text-muted-foreground hover:bg-accent"
-                      )}
-                      title="Email notification"
-                    >
-                      <Mail className="h-3 w-3" />
-                      Email
-                    </button>
-                  </div>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Mail className="h-3 w-3" />
+                    Email
+                  </span>
                   <Input
                     type="time"
                     value={r.remind_at.slice(0, 5)}
@@ -334,10 +270,8 @@ export function SettingsForm({
 
       <div className="flex flex-col items-end gap-2">
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-        {testPushError && <p className="text-sm text-destructive">{testPushError}</p>}
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex items-center gap-3">
           {testEmailSent && <Badge variant="secondary">Test email sent ✓</Badge>}
-          {testPushState === "sent" && <Badge variant="secondary">Test push sent ✓</Badge>}
           {saved && <Badge variant="success">Saved</Badge>}
           <Button
             variant="outline"
@@ -348,26 +282,6 @@ export function SettingsForm({
           >
             <Send className="h-4 w-4" />
             Test email
-          </Button>
-          <Button
-            variant="outline"
-            disabled={testPushState === "sending"}
-            onClick={async () => {
-              setTestPushState("sending");
-              setTestPushError(null);
-              const res = await sendTestPush();
-              if (res.ok) {
-                setTestPushState("sent");
-                setTimeout(() => setTestPushState("idle"), 3000);
-              } else {
-                setTestPushState("error");
-                setTestPushError(res.error ?? "Push failed");
-                setTimeout(() => setTestPushState("idle"), 5000);
-              }
-            }}
-          >
-            {testPushState === "sending" ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
-            Test push
           </Button>
           <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
