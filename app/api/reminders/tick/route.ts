@@ -93,31 +93,41 @@ export async function GET(req: Request) {
     const subs = pushSubsByUser.get(userId) ?? [];
     const timeStr = userReminders[0].remind_at.slice(0, 5);
     const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-    const habitLines = userReminders.map((r) => {
-      const h = habitMap.get(r.habit_id)!;
-      return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
-    });
-    const habitTitles = habitLines.map((h) => h.title).join(", ");
+    const inAppReminders = userReminders.filter((r) => r.channel !== "email");
+    const emailReminders = userReminders.filter((r) => r.channel === "email");
 
-    // Send browser push notification if subscribed
-    if (subs.length > 0) {
-      const pushTitle = habitLines.length === 1
-        ? `⏰ Starting in 5 min: ${habitLines[0].title}`
-        : `⏰ ${habitLines.length} habits starting at ${timeStr}`;
-      await sendWebPush(subs, { title: pushTitle, body: habitTitles, url: "/dashboard" });
-      fired++;
+    // in-app channel → browser push; fall back to email if no push subscription
+    if (inAppReminders.length > 0) {
+      const inAppHabits = inAppReminders.map((r) => {
+        const h = habitMap.get(r.habit_id)!;
+        return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
+      });
+      if (subs.length > 0) {
+        const pushTitle = inAppHabits.length === 1
+          ? `⏰ Starting in 5 min: ${inAppHabits[0].title}`
+          : `⏰ ${inAppHabits.length} habits starting at ${timeStr}`;
+        await sendWebPush(subs, { title: pushTitle, body: inAppHabits.map((h) => h.title).join(", "), url: "/dashboard" });
+        fired++;
+      } else if (email) {
+        // No push subscription — fall back to email for in-app reminders
+        await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: inAppHabits });
+        fired++;
+      } else {
+        for (const r of inAppReminders) {
+          const h = habitMap.get(r.habit_id)!;
+          await consoleChannel.send({ to: userId, title: `⏰ Starting in 5 min: ${h.title}`, body: `${h.duration_minutes} min` });
+        }
+      }
     }
 
-    // Send consolidated email
-    if (email) {
-      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitLines });
-      if (subs.length === 0) fired++; // avoid double-counting if both sent
-    } else if (subs.length === 0) {
-      // No push, no email — fall back to console
-      for (const r of userReminders) {
+    // email channel → always email
+    if (emailReminders.length > 0 && email) {
+      const emailHabits = emailReminders.map((r) => {
         const h = habitMap.get(r.habit_id)!;
-        await consoleChannel.send({ to: userId, title: `⏰ Starting in 5 min: ${h.title}`, body: `${h.duration_minutes} min` });
-      }
+        return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
+      });
+      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: emailHabits });
+      fired++;
     }
 
     userReminders.forEach((r) => reminderIds.push(r.id));
