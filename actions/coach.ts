@@ -73,6 +73,16 @@ function sanitizeHabitTitle(title: string): string {
     .replace(/^(.)/, (c) => c.toUpperCase());
 }
 
+// Checks if the user's raw message directly names an existing habit (e.g. "add Gym").
+// This catches cases where the AI renames the habit (e.g. "Gym" → "Workout session").
+function findHabitInUserMessage(habits: Habit[], userMessage: string): Habit | undefined {
+  const msg = userMessage.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  return habits.find((h) => {
+    const title = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+    return title.length >= 3 && msg.includes(title);
+  });
+}
+
 // Generic words that must not count as similarity signal between habit titles.
 const TITLE_STOP_WORDS = new Set([
   "habit", "new", "called", "named", "every", "minutes", "daily", "session",
@@ -199,8 +209,11 @@ export async function sendCoachMessage(input: {
     try {
       const raw = JSON.parse(habitActionJSON) as GeneratedHabit;
       const suggested = { ...raw, title: sanitizeHabitTitle(raw.title) };
-      // If a similar habit already exists, convert to an edit suggestion instead
-      const existing = findSimilarHabit(activeHabits, suggested.title);
+      // Check user's message first (catches AI renames like "Gym" → "Workout session"),
+      // then fall back to matching the AI's suggested title.
+      const existing =
+        findHabitInUserMessage(activeHabits, parsed.data.content) ??
+        findSimilarHabit(activeHabits, suggested.title);
       if (existing) {
         const patch: HabitEdit["patch"] = {
           ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
@@ -253,6 +266,15 @@ export async function sendCoachMessage(input: {
   // Strip both tags from the displayed text
   let cleanReply = stripTag(reply, "HABIT_ACTION");
   cleanReply = stripTag(cleanReply, "HABIT_EDIT");
+
+  // When a HABIT_ACTION was converted to a duplicate card, replace the AI's
+  // "Here's X..." text with a clean message so the UI doesn't look like a new suggestion.
+  if (habitEdit && habitActionJSON && !habitEditJSON) {
+    const wasUpdated = Object.keys(habitEdit.patch).length > 0;
+    cleanReply = wasUpdated
+      ? `Updated "${habitEdit.title}" based on your request.`
+      : `"${habitEdit.title}" is already in your plan.`;
+  }
 
   await supabase.from("coach_messages").insert({
     user_id: user.id,
