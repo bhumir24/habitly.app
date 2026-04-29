@@ -142,7 +142,7 @@ export default async function DashboardPage() {
           icon={Bell}
           accent="rose"
           label="Reminders"
-          value={reminders?.length ?? 0}
+          value={reminders?.filter((r) => habits?.some((h) => h.id === r.habit_id)).length ?? 0}
           hint="active"
         />
       </div>
