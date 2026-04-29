@@ -21,9 +21,8 @@ import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
 import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
-import { createClient } from "@/lib/supabase/client";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
-import { revalidateTrackerPages } from "@/actions/revalidate";
+import { saveSettings } from "@/actions/settings";
 
 const MAX_LIFE_MODES = 2;
 
@@ -93,56 +92,28 @@ export function SettingsForm({
   const save = () =>
     startTransition(async () => {
       setSaveError(null);
-      const supabase = createClient();
       const primary = lifeModes[0] ?? p.life_mode;
-
-      const { error: profileErr } = await supabase
-        .from("profiles")
-        .upsert(
-          {
-            id: p.id,
-            full_name: p.full_name,
-            timezone: p.timezone,
-            life_mode: primary,
-            energy_baseline: p.energy_baseline,
-          },
-          { onConflict: "id" }
-        );
-
-      if (profileErr) {
-        setSaveError(profileErr.message);
+      const res = await saveSettings({
+        full_name: p.full_name,
+        timezone: p.timezone,
+        life_mode: primary,
+        energy_baseline: p.energy_baseline,
+        lifeModes,
+        reminders: rem.map((r) => ({
+          id: r.id,
+          remind_at: r.remind_at,
+          enabled: r.enabled,
+          channel: r.channel,
+        })),
+        hasOnboarding,
+        onboardingRoutine,
+      });
+      if (!res.ok) {
+        setSaveError(res.error);
         return;
       }
-
-      if (hasOnboarding) {
-        const modes = lifeModes.length >= 1 ? lifeModes.slice(0, MAX_LIFE_MODES) : [primary];
-        const { error: onboardErr } = await supabase
-          .from("onboarding_responses")
-          .update({
-            routine: { ...onboardingRoutine, life_modes: modes },
-            life_mode: primary,
-          })
-          .eq("user_id", p.id);
-        if (onboardErr) {
-          setSaveError(onboardErr.message);
-          return;
-        }
-      }
-
       setP((prev) => ({ ...prev, life_mode: primary }));
-
-      for (const r of rem) {
-        const { error: remErr } = await supabase
-          .from("reminders")
-          .update({ remind_at: r.remind_at, enabled: r.enabled, channel: r.channel })
-          .eq("id", r.id);
-        if (remErr) {
-          setSaveError(remErr.message);
-          return;
-        }
-      }
       setSaved(true);
-      await revalidateTrackerPages();
       router.refresh();
       setTimeout(() => setSaved(false), 1500);
     });
