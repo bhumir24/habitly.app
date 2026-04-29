@@ -64,7 +64,7 @@ export function PricingCards({ currentTier }: { currentTier: PlanTier }) {
           <Feature>Unlimited coach messages (vs. 10/day on Free)</Feature>
           <Feature>Advanced AI coaching with persistent memory</Feature>
           <Feature>Deep adaptive planning (recovery weeks, progressions)</Feature>
-          <Feature>Detailed reports: best windows, mood trends, blockers</Feature>
+          <Feature>Detailed reports: best windows &amp; mood trends</Feature>
           <Feature>Coach proactively surfaces insights & nudges</Feature>
           <Feature>Priority support</Feature>
           <Button

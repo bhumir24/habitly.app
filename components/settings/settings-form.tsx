@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
-import { savePushSubscription } from "@/actions/push";
+import { savePushSubscription, sendTestPush, sendTestEmail } from "@/actions/push";
 
 const MAX_LIFE_MODES = 2;
 
@@ -89,7 +89,9 @@ export function SettingsForm({
   const [detectedTz, setDetectedTz] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [testSent, setTestSent] = useState(false);
+  const [testEmailSent, setTestEmailSent] = useState(false);
+  const [testPushState, setTestPushState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [testPushError, setTestPushError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -330,18 +332,40 @@ export function SettingsForm({
 
       <div className="flex flex-col items-end gap-2">
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-        <div className="flex items-center gap-3">
-          {testSent && <Badge variant="secondary">Test email sent</Badge>}
+        {testPushError && <p className="text-sm text-destructive">{testPushError}</p>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {testEmailSent && <Badge variant="secondary">Test email sent ✓</Badge>}
+          {testPushState === "sent" && <Badge variant="secondary">Test push sent ✓</Badge>}
           {saved && <Badge variant="success">Saved</Badge>}
           <Button
             variant="outline"
             onClick={async () => {
-              const res = await fetch("/api/reminders/test-email");
-              if (res.ok) { setTestSent(true); setTimeout(() => setTestSent(false), 3000); }
+              const res = await sendTestEmail();
+              if (res.ok) { setTestEmailSent(true); setTimeout(() => setTestEmailSent(false), 3000); }
             }}
           >
             <Send className="h-4 w-4" />
             Test email
+          </Button>
+          <Button
+            variant="outline"
+            disabled={testPushState === "sending"}
+            onClick={async () => {
+              setTestPushState("sending");
+              setTestPushError(null);
+              const res = await sendTestPush();
+              if (res.ok) {
+                setTestPushState("sent");
+                setTimeout(() => setTestPushState("idle"), 3000);
+              } else {
+                setTestPushState("error");
+                setTestPushError(res.error ?? "Push failed");
+                setTimeout(() => setTestPushState("idle"), 5000);
+              }
+            }}
+          >
+            {testPushState === "sending" ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+            Test push
           </Button>
           <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
