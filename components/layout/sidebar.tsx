@@ -80,7 +80,7 @@ export function Sidebar({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {tier === "premium"
-              ? "Advanced coach, deep reports, and smart reminders."
+              ? "Advanced coach, deep reports, and adaptive planning."
               : "Go deeper with adaptive coaching and reports."}
           </p>
         </Link>
@@ -98,8 +98,9 @@ export function Sidebar({
             </Badge>
           </div>
           <form action={logout}>
-            <Button variant="ghost" size="icon" type="submit" aria-label="Log out">
-              <LogOut className="h-4 w-4" />
+            <Button variant="ghost" size="sm" type="submit" className="gap-1.5 text-muted-foreground">
+              <LogOut className="h-3.5 w-3.5" />
+              Log out
             </Button>
           </form>
         </div>

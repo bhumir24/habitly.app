@@ -59,28 +59,15 @@ export async function saveSettings(
     if (onboardErr) return { ok: false, error: onboardErr.message };
   }
 
-  // Save reminder changes — update existing rows, insert new ones
+  // Upsert reminders on (user_id, habit_id) — never creates duplicates
   for (const r of input.reminders) {
-    if (r.id) {
-      const { error: remErr } = await supabase
-        .from("reminders")
-        .update({ remind_at: r.remind_at, enabled: r.enabled, channel: r.channel })
-        .eq("id", r.id)
-        .eq("user_id", user.id);
-      if (remErr) return { ok: false, error: remErr.message };
-    } else {
-      // New reminder row (habit had none before)
-      const { error: insErr } = await supabase
-        .from("reminders")
-        .insert({
-          user_id: user.id,
-          habit_id: r.habit_id,
-          remind_at: r.remind_at,
-          enabled: r.enabled,
-          channel: r.channel,
-        });
-      if (insErr) return { ok: false, error: insErr.message };
-    }
+    const { error: remErr } = await supabase
+      .from("reminders")
+      .upsert(
+        { user_id: user.id, habit_id: r.habit_id, remind_at: r.remind_at, enabled: r.enabled, channel: r.channel },
+        { onConflict: "user_id,habit_id" }
+      );
+    if (remErr) return { ok: false, error: remErr.message };
   }
 
   await revalidateTrackerPages();

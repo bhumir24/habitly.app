@@ -6,12 +6,12 @@ import { buildWeeklySummary } from "@/services/habit-service";
 import { getAIProvider } from "@/ai/provider";
 import {
   calendarDateInTimeZone,
-  mondayOfCalendarWeekContaining,
   nextCalendarDay,
+  prevCalendarDay,
 } from "@/lib/date";
 import type { Habit, HabitLog, WeeklyReport } from "@/types";
 
-export async function generateWeeklyReport(weekStart?: string): Promise<
+export async function generateWeeklyReport(): Promise<
   { ok: true; report: WeeklyReport } | { ok: false; error: string }
 > {
   const user = await getSessionUser();
@@ -26,26 +26,31 @@ export async function generateWeeklyReport(weekStart?: string): Promise<
     .maybeSingle();
   const tz = profile?.timezone ?? "UTC";
 
-  const mondayStr = weekStart
-    ? mondayOfCalendarWeekContaining(weekStart, tz)
-    : mondayOfCalendarWeekContaining(calendarDateInTimeZone(tz), tz);
-  let weekEnd = mondayStr;
-  for (let i = 0; i < 6; i++) weekEnd = nextCalendarDay(weekEnd);
-  const startISO = mondayStr;
+  // Always use rolling last 7 days so today's completions are always included
+  const weekEnd = calendarDateInTimeZone(tz);
+  let startISO = weekEnd;
+  for (let i = 0; i < 6; i++) startISO = prevCalendarDay(startISO);
 
-  const [{ data: habits }, { data: logs }, { data: onboarding }] = await Promise.all([
-    supabase.from("habits").select("*").eq("user_id", user.id),
+  const [{ data: habits }, { data: logs }, { data: onboarding }, { data: dailyMoods }] = await Promise.all([
+    supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true),
     supabase
       .from("habit_logs")
       .select("*")
       .eq("user_id", user.id)
-      .gte("completion_date", mondayStr)
+      .gte("completion_date", startISO)
       .lte("completion_date", weekEnd),
     supabase.from("onboarding_responses").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("daily_moods")
+      .select("mood_date, mood")
+      .eq("user_id", user.id)
+      .gte("mood_date", startISO)
+      .lte("mood_date", weekEnd),
   ]);
 
   const summary = buildWeeklySummary((habits ?? []) as Habit[], (logs ?? []) as HabitLog[], tz, {
-    weekMondayISO: mondayStr,
+    weekMondayISO: startISO,
+    dailyMoods: (dailyMoods ?? []) as Array<{ mood_date: string; mood: number }>,
   });
 
   const ai = await getAIProvider();

@@ -1,3 +1,4 @@
+import React from "react";
 import { cn } from "@/lib/utils";
 
 export function PageHeader({
@@ -6,7 +7,7 @@ export function PageHeader({
   actions,
   className,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   actions?: React.ReactNode;
   className?: string;

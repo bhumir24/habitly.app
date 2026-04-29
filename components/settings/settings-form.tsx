@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,15 +16,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Monitor } from "lucide-react";
+import { Mail, BellRing } from "lucide-react";
 import { ENERGY_LEVELS, LIFE_MODES } from "@/lib/constants";
 import { getTimezoneSelectOptions } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
+import { savePushSubscription, sendTestPush, sendTestEmail } from "@/actions/push";
 
 const MAX_LIFE_MODES = 2;
+
+function urlBase64ToUint8Array(b64: string) {
+  const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+  const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function requestBrowserNotification(): Promise<boolean> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return true;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+    });
+    await savePushSubscription(sub.toJSON());
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function SettingsForm({
   profile,
@@ -61,23 +86,29 @@ export function SettingsForm({
     })
   );
   const [timezoneTouched, setTimezoneTouched] = useState(false);
+  const [detectedTz, setDetectedTz] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [testEmailSent, setTestEmailSent] = useState(false);
+  const [testPushState, setTestPushState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [testPushError, setTestPushError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
   useEffect(() => {
     if (timezoneTouched) return;
-    if (p.timezone && p.timezone !== "UTC") return;
     try {
       const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (localTz && localTz !== p.timezone) {
+      if (!localTz) return;
+      if (localTz !== p.timezone) {
+        setDetectedTz(localTz);
         setP((prev) => ({ ...prev, timezone: localTz }));
       }
     } catch {
       // Ignore Intl availability edge cases.
     }
-  }, [p.timezone, timezoneTouched]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setP(profile);
@@ -144,9 +175,11 @@ export function SettingsForm({
           </div>
           <div>
             <Label htmlFor="profile-timezone-input">Timezone</Label>
-            <p className="mb-1.5 text-xs text-muted-foreground">
-              Type to search or open the list. Saved timezone drives “today” on your dashboard.
-            </p>
+            {detectedTz && detectedTz !== profile.timezone && (
+              <p className="mb-1.5 text-xs text-amber-600 font-medium">
+                Timezone auto-detected as <strong>{detectedTz}</strong> — hit Save to apply.
+              </p>
+            )}
             <TimezoneCombobox
               id="profile-timezone-input"
               options={timezoneOptions}
@@ -211,7 +244,7 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle className="text-base">Reminders</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Set a time and delivery channel for each habit reminder.
+            Choose how you want to be notified for each habit. "Browser" sends a push notification; "Email" sends an email.
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -240,19 +273,24 @@ export function SettingsForm({
                   <div className="flex rounded-md border overflow-hidden text-xs">
                     <button
                       type="button"
-                      onClick={() =>
-                        setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)))
-                      }
+                      onClick={async () => {
+                        const granted = await requestBrowserNotification();
+                        if (granted) {
+                          setRem(rem.map((x, j) => (j === i ? { ...x, channel: "in_app" } : x)));
+                        } else {
+                          alert("Allow notifications in your browser settings, then try again.");
+                        }
+                      }}
                       className={cn(
                         "flex items-center gap-1 px-2.5 py-1.5 transition",
                         r.channel === "in_app"
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:bg-accent"
                       )}
-                      title="In-app notification"
+                      title="Browser push notification"
                     >
-                      <Monitor className="h-3 w-3" />
-                      In-app
+                      <BellRing className="h-3 w-3" />
+                      Browser
                     </button>
                     <button
                       type="button"
@@ -268,7 +306,7 @@ export function SettingsForm({
                       title="Email notification"
                     >
                       <Mail className="h-3 w-3" />
-                      Email notification
+                      Email
                     </button>
                   </div>
                   <Input
@@ -294,12 +332,45 @@ export function SettingsForm({
 
       <div className="flex flex-col items-end gap-2">
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-        <div className="flex items-center gap-3">
-        {saved && <Badge variant="success">Saved</Badge>}
-        <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save
-        </Button>
+        {testPushError && <p className="text-sm text-destructive">{testPushError}</p>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {testEmailSent && <Badge variant="secondary">Test email sent ✓</Badge>}
+          {testPushState === "sent" && <Badge variant="secondary">Test push sent ✓</Badge>}
+          {saved && <Badge variant="success">Saved</Badge>}
+          <Button
+            variant="outline"
+            onClick={async () => {
+              const res = await sendTestEmail();
+              if (res.ok) { setTestEmailSent(true); setTimeout(() => setTestEmailSent(false), 3000); }
+            }}
+          >
+            <Send className="h-4 w-4" />
+            Test email
+          </Button>
+          <Button
+            variant="outline"
+            disabled={testPushState === "sending"}
+            onClick={async () => {
+              setTestPushState("sending");
+              setTestPushError(null);
+              const res = await sendTestPush();
+              if (res.ok) {
+                setTestPushState("sent");
+                setTimeout(() => setTestPushState("idle"), 3000);
+              } else {
+                setTestPushState("error");
+                setTestPushError(res.error ?? "Push failed");
+                setTimeout(() => setTestPushState("idle"), 5000);
+              }
+            }}
+          >
+            {testPushState === "sending" ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+            Test push
+          </Button>
+          <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save
+          </Button>
         </div>
       </div>
     </div>
