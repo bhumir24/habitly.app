@@ -64,6 +64,15 @@ function stripTag(text: string, tagName: string): string {
   return text;
 }
 
+// Strips filler suffixes AIs tend to add to habit titles (e.g. "Gardening as new habit" → "Gardening").
+function sanitizeHabitTitle(title: string): string {
+  return title
+    .replace(/\s+as\s+(a\s+)?(new\s+)?habit\b.*$/i, "")
+    .replace(/\s+(new\s+)?habit\b\s*$/i, "")
+    .trim()
+    .replace(/^(.)/, (c) => c.toUpperCase());
+}
+
 // Generic words that must not count as similarity signal between habit titles.
 const TITLE_STOP_WORDS = new Set([
   "habit", "new", "called", "named", "every", "minutes", "daily", "session",
@@ -188,7 +197,8 @@ export async function sendCoachMessage(input: {
   const habitActionJSON = extractTagJSON(reply, "HABIT_ACTION");
   if (habitActionJSON) {
     try {
-      const suggested = JSON.parse(habitActionJSON) as GeneratedHabit;
+      const raw = JSON.parse(habitActionJSON) as GeneratedHabit;
+      const suggested = { ...raw, title: sanitizeHabitTitle(raw.title) };
       // If a similar habit already exists, convert to an edit suggestion instead
       const existing = findSimilarHabit(activeHabits, suggested.title);
       if (existing) {
