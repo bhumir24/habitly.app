@@ -63,6 +63,16 @@ export async function updateHabit(id: string, patch: Partial<HabitInput> & { is_
     .eq("user_id", user.id);
 
   if (error) return { ok: false as const, error: error.message };
+
+  // When preferred_time changes, move the reminder to the ideal time for the new slot.
+  if (partial.data.preferred_time) {
+    await supabase
+      .from("reminders")
+      .update({ remind_at: idealReminderTime({ preferred_time: partial.data.preferred_time, scheduled_at: null }) })
+      .eq("habit_id", id)
+      .eq("user_id", user.id);
+  }
+
   revalidatePath("/dashboard");
   revalidatePath(`/habit/${id}`);
   return { ok: true as const };
@@ -86,13 +96,15 @@ export async function createHabit(
     .single();
   if (error) return { ok: false as const, error: error.message };
 
-  if (data?.id && reminder) {
+  if (data?.id) {
+    // Always create a reminder so Settings shows the right default time.
+    // If the user explicitly set one, use their values; otherwise default to ideal time, disabled.
     await supabase.from("reminders").insert({
       user_id: user.id,
       habit_id: data.id,
-      remind_at: reminder.remindAt,
-      channel: "in_app",
-      enabled: reminder.enabled,
+      remind_at: reminder?.remindAt ?? idealReminderTime({ preferred_time: parsed.data.preferred_time, scheduled_at: null }),
+      channel: "email",
+      enabled: reminder?.enabled ?? false,
     });
   }
 
@@ -147,7 +159,7 @@ export async function addGeneratedHabit(
         preferred_time: habit.preferred_time,
         scheduled_at: null,
       }),
-      channel: "in_app",
+      channel: "email",
       enabled: true,
     });
   }

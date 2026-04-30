@@ -200,6 +200,10 @@ export async function sendCoachMessage(input: {
     blocker: parsed.data.blocker,
   });
 
+  if (process.env.NODE_ENV === "development") {
+    console.log("[coach] raw AI reply:", reply);
+  }
+
   let habitSuggestion: GeneratedHabit | undefined;
   let habitEdit: HabitEdit | undefined;
 
@@ -243,17 +247,40 @@ export async function sendCoachMessage(input: {
   if (habitEditJSON && !habitEdit) {
     try {
       const editRequest = JSON.parse(habitEditJSON) as HabitEdit;
-      const { data: targetHabit } = await supabase
+
+      // Try exact UUID first. If the AI hallucinated the ID (common), fall back to title match.
+      let resolvedId: string | null = null;
+      const { data: byId } = await supabase
         .from("habits")
         .select("id")
         .eq("id", editRequest.habit_id)
         .eq("user_id", user.id)
-        .single();
-      if (targetHabit) {
-        const result = await updateHabit(editRequest.habit_id, editRequest.patch);
-        if (result.ok) habitEdit = editRequest;
+        .maybeSingle();
+
+      if (byId) {
+        resolvedId = byId.id;
+      } else {
+        const byTitle =
+          findHabitInUserMessage(activeHabits, editRequest.title) ??
+          findSimilarHabit(activeHabits, editRequest.title);
+        if (byTitle) resolvedId = byTitle.id;
       }
-    } catch { /* ignore */ }
+
+      if (process.env.NODE_ENV === "development") {
+        console.log("[coach] HABIT_EDIT json:", habitEditJSON);
+        console.log("[coach] resolved habit id:", resolvedId, "| by UUID:", !!byId, "| patch:", editRequest.patch);
+      }
+
+      if (resolvedId) {
+        const result = await updateHabit(resolvedId, editRequest.patch);
+        if (process.env.NODE_ENV === "development") {
+          console.log("[coach] updateHabit result:", result);
+        }
+        if (result.ok) habitEdit = { ...editRequest, habit_id: resolvedId };
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV === "development") console.error("[coach] HABIT_EDIT parse error:", e);
+    }
   }
 
   // Apply auto-converted edit (from duplicate detection above).

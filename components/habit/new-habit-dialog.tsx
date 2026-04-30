@@ -91,7 +91,7 @@ export function NewHabitDialog({ suggestions = [] }: { suggestions?: Habit[] }) 
 
   const set = <K extends keyof HabitInput>(k: K, v: HabitInput[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
-    if (k === "preferred_time" && !remind) {
+    if (k === "preferred_time") {
       setRemindAt(IDEAL_TIMES[v as string] ?? "09:00");
     }
   };
