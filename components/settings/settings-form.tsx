@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Save, Send } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 import type { EnergyLevel, Habit, LifeMode, Profile, Reminder } from "@/types";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { saveSettings, type ReminderSaveItem } from "@/actions/settings";
-import { sendTestEmail } from "@/actions/push";
 
 const MAX_LIFE_MODES = 2;
 
@@ -65,7 +64,6 @@ export function SettingsForm({
   const [detectedTz, setDetectedTz] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [testEmailSent, setTestEmailSent] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -271,18 +269,7 @@ export function SettingsForm({
       <div className="flex flex-col items-end gap-2">
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
         <div className="flex items-center gap-3">
-          {testEmailSent && <Badge variant="secondary">Test email sent ✓</Badge>}
           {saved && <Badge variant="success">Saved</Badge>}
-          <Button
-            variant="outline"
-            onClick={async () => {
-              const res = await sendTestEmail();
-              if (res.ok) { setTestEmailSent(true); setTimeout(() => setTestEmailSent(false), 3000); }
-            }}
-          >
-            <Send className="h-4 w-4" />
-            Test email
-          </Button>
           <Button onClick={save} disabled={isPending || lifeModes.length < 1}>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Save

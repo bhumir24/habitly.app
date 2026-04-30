@@ -75,7 +75,10 @@ export async function GET(req: Request) {
 
   for (const [userId, userReminders] of byUser) {
     const email = userEmailMap.get(userId);
-    if (!email) continue;
+    if (!email) {
+      console.warn("[tick] no email found for user", userId);
+      continue;
+    }
 
     const timeStr = userReminders[0].remind_at.slice(0, 5);
     const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -84,9 +87,13 @@ export async function GET(req: Request) {
       return { title: h.title, duration: h.duration_minutes, fallback: h.fallback_habit };
     });
 
-    await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitItems });
-    fired++;
-    userReminders.forEach((r) => reminderIds.push(r.id));
+    try {
+      await emailChannel.sendDigest({ to: email, time: timeStr, date: dateStr, habits: habitItems });
+      fired++;
+      userReminders.forEach((r) => reminderIds.push(r.id));
+    } catch (err) {
+      console.error("[tick] sendDigest failed for", email, err);
+    }
   }
 
   if (reminderIds.length > 0) {

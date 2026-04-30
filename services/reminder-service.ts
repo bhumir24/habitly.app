@@ -189,7 +189,7 @@ export function shouldFire(
     localH = now.getHours();
     localM = now.getMinutes();
   }
-  if (localH !== fireH || Math.abs(localM - fireM) > 1) return false;
+  if (localH !== fireH || Math.abs(localM - fireM) > 2) return false;
   // Send at most once per hour — prevents double-fire if the cron overlaps the 2-min window
   if (reminder.last_sent_at) {
     const msSinceLast = now.getTime() - new Date(reminder.last_sent_at).getTime();
