@@ -272,11 +272,21 @@ export async function sendCoachMessage(input: {
       }
 
       if (resolvedId) {
-        const result = await updateHabit(resolvedId, editRequest.patch);
+        const { remind_at, ...habitPatch } = editRequest.patch;
+        const result = await updateHabit(resolvedId, habitPatch);
         if (process.env.NODE_ENV === "development") {
           console.log("[coach] updateHabit result:", result);
         }
-        if (result.ok) habitEdit = { ...editRequest, habit_id: resolvedId };
+        if (result.ok) {
+          if (remind_at) {
+            await supabase
+              .from("reminders")
+              .update({ remind_at })
+              .eq("habit_id", resolvedId)
+              .eq("user_id", user.id);
+          }
+          habitEdit = { ...editRequest, habit_id: resolvedId };
+        }
       }
     } catch (e) {
       if (process.env.NODE_ENV === "development") console.error("[coach] HABIT_EDIT parse error:", e);

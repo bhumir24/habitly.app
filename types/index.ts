@@ -182,6 +182,7 @@ export interface HabitEdit {
     frequency?: HabitFrequency;
     difficulty?: Difficulty;
     fallback_habit?: string;
+    remind_at?: string; // HH:MM — sets the exact reminder clock time
   };
 }
 
