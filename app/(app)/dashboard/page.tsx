@@ -20,7 +20,7 @@ import {
   completionRate,
   computeStreak,
 } from "@/services/habit-service";
-import { deriveAdaptations } from "@/services/adaptation-engine";
+import { suggestAdaptations } from "@/actions/coach";
 import {
   calendarDateInTimeZone,
   dayOfWeekForCalendarDate,
@@ -102,7 +102,8 @@ export default async function DashboardPage() {
 
   const streak = computeStreak(hs, ls, new Date(), tz);
   const weekRate = completionRate(hs, ls, 7, tz);
-  const adaptations = deriveAdaptations(hs, ls, onboarding ?? null);
+  const adaptResult = await suggestAdaptations();
+  const adaptations = adaptResult.ok ? adaptResult.adaptations : [];
   const pattern = detectPatterns(hs, ls, tz);
 
   const progressPct = due.length > 0 ? Math.round((completedToday / due.length) * 100) : 0;
