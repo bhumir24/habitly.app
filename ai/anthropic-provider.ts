@@ -2,9 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
 import { MockProvider } from "./mock-provider";
 import {
+  ADAPTATION_SYSTEM,
   COACH_SYSTEM,
   PLAN_SYSTEM,
   WEEKLY_SYSTEM,
+  adaptationUserPrompt,
   coachContextBlock,
   historyForModel,
   planUserPrompt,
@@ -64,7 +66,20 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async adapt(input: Parameters<AIProvider["adapt"]>[0]): Promise<Adaptation[]> {
-    return this.fallback.adapt(input);
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1024,
+        system: ADAPTATION_SYSTEM + "\n\nOutput ONLY a valid JSON array. No markdown fences.",
+        messages: [{ role: "user", content: adaptationUserPrompt(input.habits, input.logs, input.onboarding) }],
+      });
+      const raw = response.content[0]?.type === "text" ? response.content[0].text.trim() : "[]";
+      const parsed = JSON.parse(raw) as Adaptation[];
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      return parsed;
+    } catch {
+      return this.fallback.adapt(input);
+    }
   }
 
   async weeklyInsight(input: Parameters<AIProvider["weeklyInsight"]>[0]) {

@@ -2,9 +2,11 @@ import OpenAI from "openai";
 import type { AIProvider } from "./provider";
 import { MockProvider } from "./mock-provider";
 import {
+  ADAPTATION_SYSTEM,
   COACH_SYSTEM,
   PLAN_SYSTEM,
   WEEKLY_SYSTEM,
+  adaptationUserPrompt,
   coachContextBlock,
   historyForModel,
   planUserPrompt,
@@ -63,10 +65,24 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-  // The mock adaptation engine is deterministic & cheap — prefer it.
-  // Advanced adaptation (premium) is a good place to plug the LLM later.
   async adapt(input: Parameters<AIProvider["adapt"]>[0]): Promise<Adaptation[]> {
-    return this.fallback.adapt(input);
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: ADAPTATION_SYSTEM + "\n\nWrap your array in {\"adaptations\": [...]} since json_object mode requires an object root." },
+          { role: "user", content: adaptationUserPrompt(input.habits, input.logs, input.onboarding) },
+        ],
+      });
+      const raw = completion.choices[0]?.message?.content ?? "{}";
+      const parsed = JSON.parse(raw) as { adaptations?: Adaptation[] } | Adaptation[];
+      const list = Array.isArray(parsed) ? parsed : (parsed as { adaptations?: Adaptation[] }).adaptations ?? [];
+      if (!Array.isArray(list)) throw new Error("not an array");
+      return list;
+    } catch {
+      return this.fallback.adapt(input);
+    }
   }
 
   async weeklyInsight(input: Parameters<AIProvider["weeklyInsight"]>[0]) {

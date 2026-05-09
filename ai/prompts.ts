@@ -1,6 +1,8 @@
 import type { AIProvider } from "./provider";
 import type {
   CoachMessage,
+  Habit,
+  HabitLog,
   OnboardingResponse,
   WeeklySummary,
 } from "@/types";
@@ -337,4 +339,82 @@ Best windows: ${summary.best_windows.map((b) => `${b.window} ${Math.round(b.comp
 Per-habit: ${summary.per_habit.map((p) => `${p.title}: ${p.completed}/${p.completed + p.skipped}`).join("; ")}
 User goals: ${onboarding?.goals.join("; ") ?? "—"}
 Life mode: ${onboarding?.life_mode ?? "—"} / Energy: ${onboarding?.energy_level ?? "—"}`;
+}
+
+export const ADAPTATION_SYSTEM = `You are a habit coach analysing a user's recent performance data.
+Output ONLY a valid JSON array of adaptation objects — no markdown, no extra text.
+
+Each object must match this exact shape:
+{
+  "habit_id": "<exact UUID from input>",
+  "kind": "simpler_version" | "alternate_time" | "reduced_frequency" | "recovery_day" | "micro_substitute" | "progression",
+  "reason": "1–2 sentences citing the specific completion rate or streak from the data.",
+  "suggestion": "One concrete, actionable sentence the user can act on today.",
+  "patch": {
+    // Include ONLY the fields that need to change. All optional.
+    "difficulty"?: "micro" | "easy" | "medium" | "hard",
+    "frequency"?: "daily" | "weekdays" | "weekends" | "3x_week" | "5x_week" | "custom",
+    "preferred_time"?: "early_morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "any",
+    "duration_minutes"?: number,
+    "title"?: string
+  }
+}
+
+Rules:
+- Only include habits that genuinely need attention (struggling or ready to progress). Skip habits with fewer than 3 attempts or near-perfect performance.
+- A "recovery_day" adaptation has habit_id of the most-struggling habit and an empty patch {}.
+- Only suggest recovery_day if 3+ habits are all below 60% completion.
+- Cite real numbers from the input data. Never invent rates or streaks.
+- Return [] if no adaptations are warranted.`;
+
+export function adaptationUserPrompt(
+  habits: Habit[],
+  logs: HabitLog[],
+  onboarding: OnboardingResponse | null
+): string {
+  // Compute per-habit stats from logs
+  const statsMap = new Map<string, { done: number; skipped: number; skipStreak: number }>();
+  for (const h of habits) statsMap.set(h.id, { done: 0, skipped: 0, skipStreak: 0 });
+
+  for (const l of logs) {
+    const s = statsMap.get(l.habit_id);
+    if (s) {
+      if (l.status === "completed") s.done++;
+      else if (l.status === "skipped") s.skipped++;
+    }
+  }
+
+  // Compute skip streak per habit (consecutive skips from most recent log)
+  for (const h of habits) {
+    const hLogs = logs
+      .filter((l) => l.habit_id === h.id)
+      .sort((a, b) => b.completion_date.localeCompare(a.completion_date));
+    let streak = 0;
+    for (const l of hLogs) {
+      if (l.status === "skipped") streak++;
+      else break;
+    }
+    statsMap.get(h.id)!.skipStreak = streak;
+  }
+
+  const habitLines = habits.map((h) => {
+    const s = statsMap.get(h.id)!;
+    const total = s.done + s.skipped;
+    const rate = total > 0 ? `${Math.round((s.done / total) * 100)}%` : "no data";
+    return `- id: ${h.id}
+  title: "${h.title}"
+  frequency: ${h.frequency} | preferred_time: ${h.preferred_time} | difficulty: ${h.difficulty} | duration: ${h.duration_minutes}m
+  completion: ${rate} (${s.done} done / ${s.skipped} skipped over ${total} attempts)${s.skipStreak >= 2 ? ` | skip streak: ${s.skipStreak} days` : ""}
+  fallback: ${h.fallback_habit ?? "—"}`;
+  }).join("\n");
+
+  return `User profile:
+- Life mode: ${onboarding?.life_mode ?? "—"} | Energy: ${onboarding?.energy_level ?? "—"}
+- Goals: ${onboarding?.goals.join("; ") ?? "—"}
+- Blockers: ${onboarding?.blockers.join("; ") || "—"}
+
+Active habits (past 21 days of data):
+${habitLines || "No habits."}
+
+Return a JSON array of adaptation objects for habits that need adjustment. Return [] if all habits are on track.`;
 }
