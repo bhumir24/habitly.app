@@ -31,7 +31,7 @@ export function AdaptationsPanel({ adaptations }: { adaptations: Adaptation[] })
           Smart adaptations
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Based on your last 3 weeks of activity.
+          Based on your habit completion history.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">

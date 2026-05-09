@@ -361,7 +361,7 @@ Each object must match this exact shape:
 }
 
 Rules:
-- Only include habits that genuinely need attention (struggling or ready to progress). Skip habits with fewer than 3 attempts or near-perfect performance.
+- Only include habits that genuinely need attention (struggling or ready to progress). Skip habits with zero attempts.
 - A "recovery_day" adaptation has habit_id of the most-struggling habit and an empty patch {}.
 - Only suggest recovery_day if 3+ habits are all below 60% completion.
 - Cite real numbers from the input data. Never invent rates or streaks.
@@ -413,8 +413,8 @@ export function adaptationUserPrompt(
 - Goals: ${onboarding?.goals.join("; ") ?? "—"}
 - Blockers: ${onboarding?.blockers.join("; ") || "—"}
 
-Active habits (past 21 days of data):
+Active habits (all-time completion data):
 ${habitLines || "No habits."}
 
-Return a JSON array of adaptation objects for habits that need adjustment. Return [] if all habits are on track.`;
+Return a JSON array of adaptation objects for every habit that has at least one log entry. Return [] only if no habits have any logs yet.`;
 }

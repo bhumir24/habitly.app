@@ -7,7 +7,6 @@ import { getAIProvider } from "@/ai/provider";
 import { canUse } from "@/lib/feature-flags";
 import { FREE_LIMITS } from "@/lib/feature-flags";
 import type { Adaptation, GeneratedHabit, Habit, HabitEdit, HabitLog } from "@/types";
-import { deriveAdaptations } from "@/services/adaptation-engine";
 import { updateHabit } from "@/actions/habits";
 import { firstNameFromFullName } from "@/lib/utils";
 
@@ -343,18 +342,15 @@ export async function suggestAdaptations(): Promise<
 
   const [{ data: habits }, { data: logs }, { data: onboarding }] = await Promise.all([
     supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true),
-    supabase
-      .from("habit_logs")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("completion_date", new Date(Date.now() - 21 * 86400e3).toISOString().slice(0, 10)),
+    supabase.from("habit_logs").select("*").eq("user_id", user.id),
     supabase.from("onboarding_responses").select("*").eq("user_id", user.id).maybeSingle(),
   ]);
 
-  const adaptations = deriveAdaptations(
-    (habits ?? []) as Habit[],
-    (logs ?? []) as HabitLog[],
-    onboarding ?? null
-  );
+  const ai = await getAIProvider();
+  const adaptations = await ai.adapt({
+    habits: (habits ?? []) as Habit[],
+    logs: (logs ?? []) as HabitLog[],
+    onboarding: onboarding ?? null,
+  });
   return { ok: true, adaptations };
 }
