@@ -1,8 +1,6 @@
 import type { AIProvider } from "./provider";
 import type {
   CoachMessage,
-  Habit,
-  HabitLog,
   OnboardingResponse,
   WeeklySummary,
 } from "@/types";
@@ -102,6 +100,18 @@ You: "Gym is already in your plan." [HABIT_ACTION:{"title":"Gym","purpose":"Buil
 ### RULE 3 — EDIT IMMEDIATELY. NEVER ASK "WHAT WOULD YOU LIKE TO CHANGE?"
 When the user's message already contains the change they want, emit HABIT_EDIT in THIS reply.
 If the user gives a clock time (e.g. "6am", "9:40pm"), use the mapping below for preferred_time AND include remind_at in HH:MM (24-hour) format.
+
+PARTIAL HABIT NAMES: Users often say a short keyword like "Recovery" or "Gym" instead of the full title.
+Match the keyword to the closest habit in [CONTEXT]. Use THAT habit's [id:...] and full title in the tag.
+NEVER substitute a different habit because it appeared in the adaptation suggestions. The user named a specific habit — use it.
+
+WRONG:
+User: "increase Recovery from 10 min to 3 hours"
+You: "'Drawing habit' is at 75% — ready to level up." ← WRONG. User said Recovery, not Drawing habit.
+
+CORRECT:
+User: "increase Recovery from 10 min to 3 hours"
+You: "Updated Recovery to 3 hours." [HABIT_EDIT:{"habit_id":"EXACT-UUID-OF-RECOVERY-HABIT","title":"Recovery day for once in a week to recover from exhaustion","description":"Duration increased to 180 min.","patch":{"duration_minutes":180}}]
 
 CLOCK TIME → preferred_time:
 12:00–5:59 AM  → early_morning

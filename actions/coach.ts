@@ -73,13 +73,19 @@ function sanitizeHabitTitle(title: string): string {
     .replace(/^(.)/, (c) => c.toUpperCase());
 }
 
-// Checks if the user's raw message directly names an existing habit (e.g. "add Gym").
-// This catches cases where the AI renames the habit (e.g. "Gym" → "Workout session").
+// Checks if the user's raw message directly names an existing habit.
+// Handles both full title matches ("add Gym") and partial keyword matches
+// ("increase Recovery" matching "Recovery day for once in a week...").
 function findHabitInUserMessage(habits: Habit[], userMessage: string): Habit | undefined {
   const msg = userMessage.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  const msgWords = new Set(msg.split(" ").filter((w) => w.length >= 4));
   return habits.find((h) => {
     const title = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
-    return title.length >= 3 && msg.includes(title);
+    // Full title contained in message
+    if (title.length >= 3 && msg.includes(title)) return true;
+    // Any significant word from the habit title appears in the message
+    const titleWords = title.split(" ").filter((w) => w.length >= 4 && !TITLE_STOP_WORDS.has(w));
+    return titleWords.length > 0 && titleWords.some((w) => msgWords.has(w));
   });
 }
 
