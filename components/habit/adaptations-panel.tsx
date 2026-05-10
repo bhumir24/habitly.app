@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Sparkles, Check } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ const KIND_LABEL: Record<Adaptation["kind"], string> = {
 };
 
 export function AdaptationsPanel({ adaptations }: { adaptations: Adaptation[] }) {
+  const router = useRouter();
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
 
@@ -64,7 +66,10 @@ export function AdaptationsPanel({ adaptations }: { adaptations: Adaptation[] })
                   onClick={() =>
                     startTransition(async () => {
                       const res = await applyAdaptation(a);
-                      if (res.ok) setApplied((s) => new Set(s).add(key));
+                      if (res.ok) {
+                        setApplied((s) => new Set(s).add(key));
+                        router.refresh();
+                      }
                     })
                   }
                 >
