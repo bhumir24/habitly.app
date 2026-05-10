@@ -176,22 +176,13 @@ export async function sendCoachMessage(input: {
       });
       const existing = matchedId ? activeHabits.find((h) => h.id === matchedId) : undefined;
       if (existing) {
-        const patch: HabitEdit["patch"] = {
-          ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
-          ...(suggested.preferred_time !== existing.preferred_time ? { preferred_time: suggested.preferred_time } : {}),
-          ...(suggested.frequency !== existing.frequency ? { frequency: suggested.frequency } : {}),
-          ...(suggested.difficulty !== existing.difficulty ? { difficulty: suggested.difficulty } : {}),
-        };
-        // Always surface a card so the user sees the habit and gets a Dashboard link,
-        // even if there is nothing to update (patch is empty).
+        // User asked to ADD — never auto-patch attributes. Just surface the card.
         const alreadyNote = `${existing.duration_minutes}m · ${existing.preferred_time.replace(/_/g, " ")} · ${existing.frequency.replace(/_/g, " ")}`;
         habitEdit = {
           habit_id: existing.id,
           title: existing.title,
-          description: Object.keys(patch).length === 0
-            ? `Already in your plan — ${alreadyNote}. View or edit it on the dashboard.`
-            : `Already exists (${alreadyNote}) — updating based on your request.`,
-          patch,
+          description: `Already in your plan — ${alreadyNote}. View or edit it on the dashboard.`,
+          patch: {},
         };
       } else {
         habitSuggestion = suggested;

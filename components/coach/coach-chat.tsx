@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Send, Bot, Loader2, Download, Trash2, Plus, Check, Pencil, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ export function CoachChat({
   initialMessages: CoachMessage[];
   fullName: string | null;
 }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<CoachMessage[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [mood, setMood] = useState<number | null>(null);
@@ -103,6 +105,7 @@ export function CoachChat({
       ]);
       setMood(null);
       setBlocker("");
+      if (res.habitEdit) router.refresh();
     });
   };
 
