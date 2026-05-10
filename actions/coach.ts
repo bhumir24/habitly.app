@@ -90,9 +90,9 @@ function findHabitInUserMessage(habits: Habit[], userMessage: string): Habit | u
 
 // Generic words that must not count as similarity signal between habit titles.
 const TITLE_STOP_WORDS = new Set([
-  "habit", "new", "called", "named", "every", "minutes", "daily", "session",
+  "habit", "habits", "list", "new", "called", "named", "every", "minutes", "daily", "session",
   "just", "some", "that", "this", "with", "want", "track", "practice", "routine",
-  "more", "less", "time", "week", "days", "each", "also", "plan",
+  "more", "less", "time", "week", "days", "each", "also", "plan", "add", "into",
 ]);
 
 // Checks if any active habit is similar to the suggested title.
