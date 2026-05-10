@@ -341,6 +341,23 @@ User goals: ${onboarding?.goals.join("; ") ?? "—"}
 Life mode: ${onboarding?.life_mode ?? "—"} / Energy: ${onboarding?.energy_level ?? "—"}`;
 }
 
+export const HABIT_MATCH_SYSTEM = `You match a user's habit request to their existing habit list.
+Output ONLY valid JSON: {"habit_id": "<uuid>"} or {"habit_id": null}.
+A match means the user is clearly referring to the same activity as an existing habit — same exercise, same routine.
+Do NOT match on generic words like "habit", "habits", "list", "add", "session", "routine", "practice".
+If genuinely new, return {"habit_id": null}.`;
+
+export function habitMatchPrompt(userMessage: string, suggestedTitle: string, habits: Habit[]): string {
+  const lines = habits.map((h) => `- id: ${h.id} | "${h.title}"`).join("\n");
+  return `User said: "${userMessage}"
+Habit being requested: "${suggestedTitle}"
+
+Existing habits:
+${lines || "None"}
+
+Does any existing habit match what the user wants? Return JSON only.`;
+}
+
 export const ADAPTATION_SYSTEM = `You are a habit coach analysing a user's recent performance data.
 Output ONLY a valid JSON array of adaptation objects — no markdown, no extra text.
 

@@ -4,10 +4,12 @@ import { MockProvider } from "./mock-provider";
 import {
   ADAPTATION_SYSTEM,
   COACH_SYSTEM,
+  HABIT_MATCH_SYSTEM,
   PLAN_SYSTEM,
   WEEKLY_SYSTEM,
   adaptationUserPrompt,
   coachContextBlock,
+  habitMatchPrompt,
   historyForModel,
   planUserPrompt,
   weeklyUserPrompt,
@@ -62,6 +64,24 @@ export class AnthropicProvider implements AIProvider {
       return text;
     } catch {
       return this.fallback.coachReply(input);
+    }
+  }
+
+  async matchHabit(input: Parameters<AIProvider["matchHabit"]>[0]): Promise<string | null> {
+    if (input.habits.length === 0) return null;
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 64,
+        system: HABIT_MATCH_SYSTEM + "\n\nOutput ONLY valid JSON. No markdown fences.",
+        messages: [{ role: "user", content: habitMatchPrompt(input.userMessage, input.suggestedTitle, input.habits) }],
+      });
+      const raw = response.content[0]?.type === "text" ? response.content[0].text.trim() : "{}";
+      const { habit_id } = JSON.parse(raw) as { habit_id: string | null };
+      if (habit_id && input.habits.some((h) => h.id === habit_id)) return habit_id;
+      return null;
+    } catch {
+      return this.fallback.matchHabit(input);
     }
   }
 

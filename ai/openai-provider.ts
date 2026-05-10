@@ -4,10 +4,12 @@ import { MockProvider } from "./mock-provider";
 import {
   ADAPTATION_SYSTEM,
   COACH_SYSTEM,
+  HABIT_MATCH_SYSTEM,
   PLAN_SYSTEM,
   WEEKLY_SYSTEM,
   adaptationUserPrompt,
   coachContextBlock,
+  habitMatchPrompt,
   historyForModel,
   planUserPrompt,
   weeklyUserPrompt,
@@ -62,6 +64,26 @@ export class OpenAIProvider implements AIProvider {
     } catch (err) {
       console.error("[OpenAIProvider] coachReply failed:", err);
       return this.fallback.coachReply(input);
+    }
+  }
+
+  async matchHabit(input: Parameters<AIProvider["matchHabit"]>[0]): Promise<string | null> {
+    if (input.habits.length === 0) return null;
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: HABIT_MATCH_SYSTEM },
+          { role: "user", content: habitMatchPrompt(input.userMessage, input.suggestedTitle, input.habits) },
+        ],
+      });
+      const raw = completion.choices[0]?.message?.content ?? "{}";
+      const { habit_id } = JSON.parse(raw) as { habit_id: string | null };
+      if (habit_id && input.habits.some((h) => h.id === habit_id)) return habit_id;
+      return null;
+    } catch {
+      return this.fallback.matchHabit(input);
     }
   }
 

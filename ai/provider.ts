@@ -42,6 +42,12 @@ export interface AIProvider {
     onboarding: OnboardingResponse | null;
   }): Promise<Adaptation[]>;
 
+  matchHabit(input: {
+    userMessage: string;
+    suggestedTitle: string;
+    habits: Habit[];
+  }): Promise<string | null>;
+
   weeklyInsight(input: {
     summary: WeeklySummary;
     onboarding: OnboardingResponse | null;

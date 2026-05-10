@@ -373,6 +373,24 @@ export class MockProvider implements AIProvider {
     return pick;
   }
 
+  async matchHabit({ suggestedTitle, habits }: Parameters<AIProvider["matchHabit"]>[0]): Promise<string | null> {
+    const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+    const STOP = new Set(["habit", "habits", "session", "routine", "practice", "daily", "new", "list", "add"]);
+    const words = (s: string) => s.split(" ").filter((w) => w.length >= 3 && !STOP.has(w));
+    const t = clean(suggestedTitle);
+    const tWords = new Set(words(t));
+    for (const h of habits) {
+      const ht = clean(h.title);
+      if (ht === t || ht.includes(t) || t.includes(ht)) return h.id;
+      if (tWords.size > 0) {
+        const htWords = words(ht);
+        const overlap = htWords.filter((w) => tWords.has(w)).length;
+        if (overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.6) return h.id;
+      }
+    }
+    return null;
+  }
+
   async adapt({ habits, logs }: { habits: Habit[]; logs: HabitLog[]; onboarding: OnboardingResponse | null }): Promise<Adaptation[]> {
     const adaptations: Adaptation[] = [];
     for (const h of habits) {

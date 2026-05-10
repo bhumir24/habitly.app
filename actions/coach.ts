@@ -72,55 +72,6 @@ function sanitizeHabitTitle(title: string): string {
     .replace(/^(.)/, (c) => c.toUpperCase());
 }
 
-// Checks if the user's raw message directly names an existing habit.
-// Handles both full title matches ("add Gym") and partial keyword matches
-// ("increase Recovery" matching "Recovery day for once in a week...").
-function findHabitInUserMessage(habits: Habit[], userMessage: string): Habit | undefined {
-  const msg = userMessage.toLowerCase().replace(/[^a-z0-9 ]/g, "");
-  const msgWords = new Set(msg.split(" ").filter((w) => w.length >= 4));
-  return habits.find((h) => {
-    const title = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, "");
-    // Full title contained in message
-    if (title.length >= 3 && msg.includes(title)) return true;
-    // Any significant word from the habit title appears in the message
-    const titleWords = title.split(" ").filter((w) => w.length >= 4 && !TITLE_STOP_WORDS.has(w));
-    return titleWords.length > 0 && titleWords.some((w) => msgWords.has(w));
-  });
-}
-
-// Generic words that must not count as similarity signal between habit titles.
-const TITLE_STOP_WORDS = new Set([
-  "habit", "habits", "list", "new", "called", "named", "every", "minutes", "daily", "session",
-  "just", "some", "that", "this", "with", "want", "track", "practice", "routine",
-  "more", "less", "time", "week", "days", "each", "also", "plan", "add", "into",
-]);
-
-// Checks if any active habit is similar to the suggested title.
-// Only meaningful content words are compared — generic words are ignored.
-function findSimilarHabit(habits: Habit[], title: string): Habit | undefined {
-  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
-  const contentWords = (s: string) =>
-    s.split(" ").filter((w) => w.length >= 3 && !TITLE_STOP_WORDS.has(w));
-
-  const t = clean(title);
-  const tWords = new Set(contentWords(t));
-
-  // If the suggested title has NO meaningful content words, skip duplicate check.
-  if (tWords.size === 0) return undefined;
-
-  return habits.find((h) => {
-    const ht = clean(h.title);
-    // Exact title match
-    if (ht === t) return true;
-    // One title is a substring of the other (covers "Gym" ↔ "Gym session")
-    if (t.length >= 3 && (ht.includes(t) || t.includes(ht))) return true;
-    // Content-word overlap ≥ 50% of the shorter set
-    const htWords = contentWords(ht);
-    if (htWords.length === 0 || tWords.size === 0) return false;
-    const overlap = htWords.filter((w) => tWords.has(w)).length;
-    return overlap > 0 && overlap >= Math.min(tWords.size, htWords.length) * 0.6;
-  });
-}
 
 export async function sendCoachMessage(input: {
   content: string;
@@ -218,11 +169,12 @@ export async function sendCoachMessage(input: {
     try {
       const raw = JSON.parse(habitActionJSON) as GeneratedHabit;
       const suggested = { ...raw, title: sanitizeHabitTitle(raw.title) };
-      // Check user's message first (catches AI renames like "Gym" → "Workout session"),
-      // then fall back to matching the AI's suggested title.
-      const existing =
-        findHabitInUserMessage(activeHabits, parsed.data.content) ??
-        findSimilarHabit(activeHabits, suggested.title);
+      const matchedId = await ai.matchHabit({
+        userMessage: parsed.data.content,
+        suggestedTitle: suggested.title,
+        habits: activeHabits,
+      });
+      const existing = matchedId ? activeHabits.find((h) => h.id === matchedId) : undefined;
       if (existing) {
         const patch: HabitEdit["patch"] = {
           ...(suggested.duration_minutes !== existing.duration_minutes ? { duration_minutes: suggested.duration_minutes } : {}),
@@ -265,10 +217,12 @@ export async function sendCoachMessage(input: {
       if (byId) {
         resolvedId = byId.id;
       } else {
-        const byTitle =
-          findHabitInUserMessage(activeHabits, editRequest.title) ??
-          findSimilarHabit(activeHabits, editRequest.title);
-        if (byTitle) resolvedId = byTitle.id;
+        const byTitle = await ai.matchHabit({
+          userMessage: parsed.data.content,
+          suggestedTitle: editRequest.title,
+          habits: activeHabits,
+        });
+        if (byTitle) resolvedId = byTitle;
       }
 
       if (process.env.NODE_ENV === "development") {
