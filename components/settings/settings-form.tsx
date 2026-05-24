@@ -216,7 +216,7 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle className="text-base">Reminders</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Set a time for each habit and we'll email you 5 minutes before it's scheduled to start.
+            Set a time for each habit and we&apos;ll email you 5 minutes before it&apos;s scheduled to start.
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
